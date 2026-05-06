@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,14 +9,21 @@ import { getVideos, likeVideo, unlikeVideo } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 
+const isLikelyVideoUrl = (url) => {
+  const value = String(url || '').toLowerCase();
+  return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
+};
+
 const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
+  const isVideo = isLikelyVideoUrl(video.url);
 
   useEffect(() => {
+    if (!isVideo) return;
     // Asegurar que el audio se escuche en iOS incluso con el boton de silencio
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-  }, []);
+  }, [isVideo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,20 +48,28 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
     return () => {
       cancelled = true;
     };
-  }, [isActive]);
+  }, [isActive, isVideo]);
 
   return (
     <View style={[styles.videoContainer, { height }]}>
-      <Video
-        ref={videoRef}
-        style={StyleSheet.absoluteFillObject}
-        source={{ uri: video.url }}
-        resizeMode={ResizeMode.COVER}
-        isLooping
-        shouldPlay={isActive}
-        isMuted={!isActive}
-        volume={1.0}
-      />
+      {isVideo ? (
+        <Video
+          ref={videoRef}
+          style={StyleSheet.absoluteFillObject}
+          source={{ uri: video.url }}
+          resizeMode={ResizeMode.COVER}
+          isLooping
+          shouldPlay={isActive}
+          isMuted={!isActive}
+          volume={1.0}
+        />
+      ) : (
+        <Image
+          source={{ uri: video.url }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+        />
+      )}
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.8)']}
         style={styles.bottomGradient}

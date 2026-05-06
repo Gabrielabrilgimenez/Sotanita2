@@ -31,10 +31,10 @@ export default function UploadScreen({ navigation }) {
   const isMobileVideoRatio = (width, height) => {
     if (!width || !height) return false;
     const ratio = width / height;
-    return ratio >= 0.52 && ratio <= 0.6;
+    return ratio >= 0.45 && ratio <= 0.8;
   };
 
-  const getVideoDimensions = async (asset) => {
+  const getMediaDimensions = async (asset) => {
     if (asset?.width && asset?.height) {
       return { width: asset.width, height: asset.height };
     }
@@ -47,13 +47,20 @@ export default function UploadScreen({ navigation }) {
     if (!uri) return { width: null, height: null };
 
     return new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        resolve({ width: video.videoWidth || null, height: video.videoHeight || null });
-      };
-      video.onerror = () => resolve({ width: null, height: null });
-      video.src = uri;
+      if (asset?.type === 'image') {
+        const img = new globalThis.Image();
+        img.onload = () => resolve({ width: img.width || null, height: img.height || null });
+        img.onerror = () => resolve({ width: null, height: null });
+        img.src = uri;
+      } else {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          resolve({ width: video.videoWidth || null, height: video.videoHeight || null });
+        };
+        video.onerror = () => resolve({ width: null, height: null });
+        video.src = uri;
+      }
     });
   };
 
@@ -67,27 +74,27 @@ export default function UploadScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
       quality: 1,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
-      if (asset.type && asset.type !== 'video') {
-        Alert.alert('Formato invalido', 'Solo se permiten videos verticales (9:16).');
+      if (asset.type && asset.type !== 'video' && asset.type !== 'image') {
+        Alert.alert('Formato invalido', 'Solo se permiten videos o imagenes verticales (9:16).');
         return;
       }
 
-      const { width, height } = await getVideoDimensions(asset);
+      const { width, height } = await getMediaDimensions(asset);
       if (!isMobileVideoRatio(width, height)) {
-        Alert.alert('Formato invalido', 'El video debe ser vertical (aprox 9:16).');
+        Alert.alert('Formato invalido', 'El contenido debe ser vertical (aprox 9:16).');
         return;
       }
 
       setVideoFile({
         uri: asset.uri,
-        type: 'video/mp4',
+        type: asset.type === 'image' ? 'image/jpeg' : 'video/mp4',
         name: asset.uri.split('/').pop() || 'archivo_subido',
         // En web, Expo ImagePicker expone un objeto `file` literal que FormData necesita
         file: Platform.OS === 'web' ? asset.file : undefined, 
@@ -167,7 +174,7 @@ export default function UploadScreen({ navigation }) {
             >
               <Ionicons name="cloud-upload-outline" size={70} color={colors.textMuted} />
               <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginTop: spacing.sm }}>Selecciona un archivo</Text>
-              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Solo video vertical (9:16)</Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Video o imagen vertical (9:16)</Text>
             </Pressable>
           ) : (
             <View style={[styles.previewArea, { backgroundColor: colors.surface }]}> 
