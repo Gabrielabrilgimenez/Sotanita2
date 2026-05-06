@@ -28,6 +28,35 @@ export default function UploadScreen({ navigation }) {
 
   useResetScrollOnFocus(scrollRef);
 
+  const isMobileVideoRatio = (width, height) => {
+    if (!width || !height) return false;
+    const ratio = width / height;
+    return ratio >= 0.52 && ratio <= 0.6;
+  };
+
+  const getVideoDimensions = async (asset) => {
+    if (asset?.width && asset?.height) {
+      return { width: asset.width, height: asset.height };
+    }
+
+    if (Platform.OS !== 'web') {
+      return { width: null, height: null };
+    }
+
+    const uri = asset?.uri;
+    if (!uri) return { width: null, height: null };
+
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        resolve({ width: video.videoWidth || null, height: video.videoHeight || null });
+      };
+      video.onerror = () => resolve({ width: null, height: null });
+      video.src = uri;
+    });
+  };
+
   const pickVideo = async () => {
     // Pedir permisos si es necesario
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -38,16 +67,27 @@ export default function UploadScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'], // Actualizado para quitar el warning de deprecación
-      allowsEditing: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: false,
       quality: 1,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
+      if (asset.type && asset.type !== 'video') {
+        Alert.alert('Formato invalido', 'Solo se permiten videos verticales (9:16).');
+        return;
+      }
+
+      const { width, height } = await getVideoDimensions(asset);
+      if (!isMobileVideoRatio(width, height)) {
+        Alert.alert('Formato invalido', 'El video debe ser vertical (aprox 9:16).');
+        return;
+      }
+
       setVideoFile({
         uri: asset.uri,
-        type: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+        type: 'video/mp4',
         name: asset.uri.split('/').pop() || 'archivo_subido',
         // En web, Expo ImagePicker expone un objeto `file` literal que FormData necesita
         file: Platform.OS === 'web' ? asset.file : undefined, 
@@ -127,7 +167,7 @@ export default function UploadScreen({ navigation }) {
             >
               <Ionicons name="cloud-upload-outline" size={70} color={colors.textMuted} />
               <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginTop: spacing.sm }}>Selecciona un archivo</Text>
-              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Videos/Imágenes (max. 60 seg)</Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Solo video vertical (9:16)</Text>
             </Pressable>
           ) : (
             <View style={[styles.previewArea, { backgroundColor: colors.surface }]}> 
