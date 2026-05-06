@@ -138,6 +138,32 @@ export async function deleteVideo(videoId, idUsuario) {
   return parseResponse(response);
 }
 
+export async function getVideoComments(videoId) {
+  const response = await fetch(buildApiUrl(`/api/videos/${videoId}/comments`));
+  return parseResponse(response);
+}
+
+export async function postVideoComment(videoId, payload) {
+  const response = await fetch(buildApiUrl(`/api/videos/${videoId}/comments`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function uploadCommentAudio(formData) {
+  const response = await fetch(buildApiUrl('/api/uploads/audio'), {
+    method: 'POST',
+    body: formData,
+  });
+
+  return parseResponse(response);
+}
+
 export async function getNotifications(idUsuario, limit = 20, offset = 0) {
   const encodedUser = encodeURIComponent(idUsuario);
   const response = await fetch(

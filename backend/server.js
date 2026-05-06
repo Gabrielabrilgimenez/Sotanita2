@@ -108,12 +108,22 @@ app.get('/api/videos', async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const offset = parseInt(req.query.offset) || 0;
 
-        const videos = await db.collection('videos')
-            .find({})
-            .sort({ createdAt: -1 })
-            .skip(offset)
-            .limit(limit)
-            .toArray();
+        const videos = await db.collection('videos').aggregate([
+            { $sort: { createdAt: -1 } },
+            { $skip: offset },
+            { $limit: limit },
+            { $addFields: { videoIdStr: { $toString: '$_id' } } },
+            {
+                $lookup: {
+                    from: 'comentarios',
+                    localField: 'videoIdStr',
+                    foreignField: 'videoId',
+                    as: 'comments',
+                },
+            },
+            { $addFields: { commentsCount: { $size: '$comments' } } },
+            { $project: { comments: 0, videoIdStr: 0 } },
+        ]).toArray();
 
         res.json(videos.map(v => ({
             ...v,
@@ -123,6 +133,101 @@ app.get('/api/videos', async (req, res) => {
     } catch (error) {
         console.error('Error al obtener videos:', error);
         res.status(500).json({ error: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/videos/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'id de video invalido' });
+        }
+
+        const comments = await db.collection('comentarios')
+            .find({ videoId: id })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        return res.json(comments.map((comment) => ({
+            ...comment,
+            id: comment._id.toString(),
+            _id: undefined,
+        })));
+    } catch (error) {
+        console.error('Error al obtener comentarios:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.post('/api/videos/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'id de video invalido' });
+        }
+
+        const { id_usuario, username, type, text, audioUrl } = req.body || {};
+        const normalizedUser = String(id_usuario || '').trim().toLowerCase();
+        const normalizedUsername = String(username || '').trim();
+        const normalizedType = String(type || '').trim().toLowerCase();
+
+        if (!normalizedUser) {
+            return res.status(400).json({ message: 'id_usuario es obligatorio' });
+        }
+
+        if (normalizedType !== 'text' && normalizedType !== 'audio') {
+            return res.status(400).json({ message: 'type invalido' });
+        }
+
+        if (normalizedType === 'text' && !String(text || '').trim()) {
+            return res.status(400).json({ message: 'text es obligatorio' });
+        }
+
+        if (normalizedType === 'audio' && !String(audioUrl || '').trim()) {
+            return res.status(400).json({ message: 'audioUrl es obligatorio' });
+        }
+
+        const commentDoc = {
+            videoId: id,
+            userId: normalizedUser,
+            username: normalizedUsername || normalizedUser.split('@')[0] || 'usuario',
+            type: normalizedType,
+            text: normalizedType === 'text' ? String(text).trim() : null,
+            audioUrl: normalizedType === 'audio' ? String(audioUrl).trim() : null,
+            createdAt: new Date(),
+        };
+
+        const insertResult = await db.collection('comentarios').insertOne(commentDoc);
+
+        return res.status(201).json({
+            id: insertResult.insertedId.toString(),
+            ...commentDoc,
+            createdAt: commentDoc.createdAt.toISOString(),
+        });
+    } catch (error) {
+        console.error('Error al crear comentario:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.post('/api/uploads/audio', upload.single('file'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) {
+            return res.status(400).json({ message: 'file es obligatorio' });
+        }
+
+        const result = await cloudinary.uploader.upload(file.path, {
+            resource_type: 'video',
+            folder: 'audio_comments',
+        });
+
+        fs.unlinkSync(file.path);
+
+        return res.status(201).json({ url: result.secure_url });
+    } catch (error) {
+        console.error('Error al subir audio:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
     }
 });
 

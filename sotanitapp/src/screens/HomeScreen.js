@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image, ScrollView } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform } from 'react-native';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode, Audio } from 'expo-av';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getVideos, likeVideo, unlikeVideo } from '../api/backend';
+import { getVideos, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 
@@ -67,7 +67,7 @@ const MediaCarousel = ({ urls, height }) => {
   );
 };
 
-const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
+const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, commentsCount, liking }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
@@ -163,11 +163,11 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
           <Text style={styles.actionText}>{formatLikes(video.likes || 0)}</Text>
         </Pressable>
 
-        <Pressable style={styles.actionWrap}>
+        <Pressable style={styles.actionWrap} onPress={() => onCommentPress(video.id)}>
           <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}>
             <Ionicons name="chatbubble-outline" size={26} color={colors.white} />
           </View>
-          <Text style={styles.actionText}>0</Text>
+          <Text style={styles.actionText}>{commentsCount}</Text>
         </Pressable>
 
         <Pressable style={styles.actionWrap}>
@@ -193,6 +193,23 @@ export default function HomeScreen({ navigation }) {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [likingVideoId, setLikingVideoId] = useState(null);
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [commentsByVideo, setCommentsByVideo] = useState({});
+  const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const commentsAnim = useRef(new Animated.Value(0)).current;
+  const screenWidth = Dimensions.get('window').width;
+  const recordingRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const mediaChunksRef = useRef([]);
+  const audioRef = useRef(null);
+  const [activeAudioId, setActiveAudioId] = useState(null);
+  const [audioPositionMs, setAudioPositionMs] = useState(0);
+  const [audioDurationMs, setAudioDurationMs] = useState(0);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   
   const [activeIndex, setActiveIndex] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
@@ -331,6 +348,316 @@ export default function HomeScreen({ navigation }) {
     }
   }, [isLoggedIn, user?.email, likingVideoId]);
 
+  const mapComment = useCallback((comment) => ({
+    id: comment.id,
+    author: comment.username,
+    type: comment.type,
+    content: comment.type === 'audio' ? null : comment.text,
+    audioUrl: comment.audioUrl,
+  }), []);
+
+  const openComments = useCallback(async (videoId) => {
+    setSelectedVideoId(videoId);
+    setShowComments(true);
+    try {
+      const data = await getVideoComments(videoId);
+      setCommentsByVideo((prev) => ({
+        ...prev,
+        [videoId]: data.map(mapComment),
+      }));
+      setVideos((prev) => prev.map((item) => (
+        item.id === videoId
+          ? { ...item, commentsCount: data.length }
+          : item
+      )));
+    } catch (error) {
+      console.error('Error cargando comentarios:', error);
+    }
+  }, [mapComment]);
+
+  const closeComments = useCallback(() => {
+    Animated.timing(commentsAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setShowComments(false);
+      setSelectedVideoId(null);
+      setCommentText('');
+      setIsRecording(false);
+    });
+  }, [commentsAnim]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.unloadAsync().catch(() => {});
+        audioRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const formatTime = (ms) => {
+    if (!ms || ms < 0) return '0:00';
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const handleToggleAudio = useCallback(async (comment) => {
+    const audioUrl = comment?.audioUrl || comment?.audio_url;
+    if (!audioUrl || audioUrl === 'pending') {
+      Alert.alert('Audio no disponible', 'Este comentario aun no tiene audio.');
+      return;
+    }
+
+    try {
+      if (activeAudioId === comment.id && audioRef.current) {
+        const status = await audioRef.current.getStatusAsync();
+        if (status.isPlaying) {
+          await audioRef.current.pauseAsync();
+          setIsAudioPlaying(false);
+        } else {
+          await audioRef.current.playAsync();
+          setIsAudioPlaying(true);
+        }
+        return;
+      }
+
+      if (audioRef.current) {
+        await audioRef.current.unloadAsync();
+        audioRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true },
+        (status) => {
+          if (!status.isLoaded) return;
+          setAudioPositionMs(status.positionMillis || 0);
+          setAudioDurationMs(status.durationMillis || 0);
+          setIsAudioPlaying(Boolean(status.isPlaying));
+          if (status.didJustFinish) {
+            setIsAudioPlaying(false);
+            setAudioPositionMs(0);
+          }
+        }
+      );
+
+      audioRef.current = sound;
+      setActiveAudioId(comment.id);
+      setIsAudioPlaying(true);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo reproducir el audio.');
+    }
+  }, [activeAudioId]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (!selectedVideoId) return;
+
+    if (Platform.OS === 'web') {
+      const recorder = mediaRecorderRef.current;
+      if (!recorder || recorder.state === 'inactive') return;
+      setIsUploadingAudio(true);
+
+      const stopPromise = new Promise((resolve) => {
+        recorder.onstop = () => resolve();
+      });
+
+      recorder.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+
+      await stopPromise;
+
+      try {
+        const blob = new Blob(mediaChunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], 'comment-audio.webm', { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', file);
+        const uploadResult = await uploadCommentAudio(formData);
+        const payload = {
+          id_usuario: user?.email || 'usuario',
+          username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
+          type: 'audio',
+          text: null,
+          audioUrl: uploadResult.url,
+        };
+        const response = await postVideoComment(selectedVideoId, payload);
+        const formatted = mapComment(response);
+        setCommentsByVideo((prev) => ({
+          ...prev,
+          [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+        }));
+        setVideos((prev) => prev.map((item) => (
+          item.id === selectedVideoId
+            ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+            : item
+        )));
+      } catch (error) {
+        Alert.alert('Error', error.message || 'No se pudo subir el audio.');
+      } finally {
+        setIsUploadingAudio(false);
+      }
+
+      return;
+    }
+
+    try {
+      const recording = recordingRef.current;
+      if (!recording) return;
+      setIsRecording(false);
+      setIsUploadingAudio(true);
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      recordingRef.current = null;
+
+      if (!uri) {
+        setIsUploadingAudio(false);
+        Alert.alert('Error', 'No se pudo obtener el audio.');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        type: 'audio/m4a',
+        name: 'comment-audio.m4a',
+      });
+
+      const uploadResult = await uploadCommentAudio(formData);
+      const payload = {
+        id_usuario: user?.email || 'usuario',
+        username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
+        type: 'audio',
+        text: null,
+        audioUrl: uploadResult.url,
+      };
+
+      const response = await postVideoComment(selectedVideoId, payload);
+      const formatted = mapComment(response);
+
+      setCommentsByVideo((prev) => ({
+        ...prev,
+        [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+      }));
+      setVideos((prev) => prev.map((item) => (
+        item.id === selectedVideoId
+          ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+          : item
+      )));
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo subir el audio.');
+    } finally {
+      setIsUploadingAudio(false);
+    }
+  }, [selectedVideoId, user?.email, user?.username, mapComment]);
+
+  useEffect(() => {
+    if (!showComments) return;
+    commentsAnim.setValue(0);
+    Animated.timing(commentsAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [showComments, commentsAnim]);
+
+  const handleSendComment = useCallback(async () => {
+    if (!selectedVideoId) return;
+    if (isUploadingAudio) {
+      Alert.alert('Espera', 'Se esta subiendo el audio.');
+      return;
+    }
+
+    if (isRecording) {
+      await handleStopRecording();
+      return;
+    }
+
+    if (!commentText.trim()) {
+      Alert.alert('Vacio', 'Escribe un comentario o graba un audio.');
+      return;
+    }
+
+    try {
+      const payload = {
+        id_usuario: user?.email || 'usuario',
+        username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
+        type: 'text',
+        text: commentText.trim(),
+        audioUrl: null,
+      };
+
+      const response = await postVideoComment(selectedVideoId, payload);
+      const formatted = mapComment(response);
+
+      setCommentsByVideo((prev) => ({
+        ...prev,
+        [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+      }));
+      setVideos((prev) => prev.map((item) => (
+        item.id === selectedVideoId
+          ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+          : item
+      )));
+      setCommentText('');
+      setIsRecording(false);
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo enviar el comentario.');
+    }
+  }, [commentText, isRecording, isUploadingAudio, selectedVideoId, user?.email, user?.username, mapComment, handleStopRecording]);
+
+  const handleToggleRecording = useCallback(async () => {
+    if (!selectedVideoId) return;
+
+    if (isUploadingAudio || isRecording) return;
+
+    if (Platform.OS === 'web') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        const recorder = new MediaRecorder(stream);
+        mediaChunksRef.current = [];
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            mediaChunksRef.current.push(event.data);
+          }
+        };
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+        setIsRecording(true);
+      } catch (error) {
+        Alert.alert('Permisos requeridos', 'Necesitas permisos de microfono.');
+      }
+      return;
+    }
+
+    if (!isRecording) {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permisos requeridos', 'Necesitas permisos de microfono.');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      recordingRef.current = recording;
+      setIsRecording(true);
+      return;
+    }
+  }, [selectedVideoId, isRecording, isUploadingAudio, user?.email, user?.username, mapComment]);
+
   useEffect(() => {
     refreshFeed();
   }, [refreshFeed]);
@@ -363,6 +690,8 @@ export default function HomeScreen({ navigation }) {
     updateActiveIndexFromOffset(event.nativeEvent.contentOffset.y);
   }, [updateActiveIndexFromOffset]);
 
+  const activeComments = selectedVideoId ? (commentsByVideo[selectedVideoId] || []) : [];
+
   return (
     <View style={styles.root} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
       {loading && videos.length === 0 ? (
@@ -379,6 +708,8 @@ export default function HomeScreen({ navigation }) {
                isActive={index === activeIndex && isFocused} 
                height={containerHeight}
                onLikePress={handleLike}
+               onCommentPress={openComments}
+               commentsCount={item.commentsCount ?? (commentsByVideo[item.id] || []).length}
                liking={likingVideoId === item.id}
             />
           )}
@@ -415,6 +746,87 @@ export default function HomeScreen({ navigation }) {
           }
         />
       ) : null}
+
+      <Modal visible={showComments} transparent animationType="none" onRequestClose={closeComments}>
+        <View style={[styles.commentsOverlay, { backgroundColor: colors.overlay }]}> 
+          <Animated.View
+            style={[
+              styles.commentsPanel,
+              {
+                backgroundColor: colors.surface,
+                transform: [{ translateX: commentsAnim.interpolate({ inputRange: [0, 1], outputRange: [screenWidth, 0] }) }],
+              },
+            ]}
+          >
+            <View style={[styles.commentsHeader, { borderBottomColor: colors.border }]}> 
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 18 }}>Comentarios</Text>
+              <Pressable onPress={closeComments}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+              {activeComments.length === 0 ? (
+                <Text style={{ color: colors.textMuted }}>No hay comentarios todavia.</Text>
+              ) : (
+                activeComments.map((comment) => (
+                  <View key={comment.id} style={styles.commentRow}>
+                    <View style={[styles.commentAvatar, { backgroundColor: colors.surfaceElevated }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>@{comment.author || comment.username}</Text>
+                      {(comment.type || comment?.type) === 'audio' ? (
+                        <Pressable
+                          style={[styles.audioBubble, { backgroundColor: colors.surfaceElevated }]}
+                          onPress={() => handleToggleAudio(comment)}
+                        >
+                          <Ionicons
+                            name={activeAudioId === comment.id && isAudioPlaying ? 'pause' : 'play'}
+                            size={16}
+                            color={colors.text}
+                          />
+                          <Text style={{ color: colors.text, marginLeft: 8 }}>
+                            {activeAudioId === comment.id
+                              ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
+                              : 'Audio'}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={{ color: colors.text }}>{comment.content || comment.text}</Text>
+                      )}
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={[styles.commentInputRow, { borderTopColor: colors.border }]}> 
+              <TextInput
+                value={commentText}
+                onChangeText={setCommentText}
+                placeholder="Escribe un comentario..."
+                placeholderTextColor={colors.textMuted}
+                style={[styles.commentInput, { backgroundColor: colors.surfaceElevated, color: colors.text }]}
+                editable={!isRecording && !isUploadingAudio}
+              />
+              <Pressable
+                style={[styles.actionCircle, { backgroundColor: isRecording ? colors.primary : colors.surfaceElevated }]}
+                onPress={handleToggleRecording}
+              >
+                <Ionicons name="mic" size={18} color={isRecording ? colors.black : colors.text} />
+              </Pressable>
+              <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary }]} onPress={handleSendComment}>
+                <Ionicons name="send" size={18} color={colors.black} />
+              </Pressable>
+            </View>
+            {isRecording || isUploadingAudio ? (
+              <View style={styles.recordingBar}>
+                <View style={styles.recordingDot} />
+                <Text style={{ color: colors.text }}>{isUploadingAudio ? 'Subiendo audio...' : 'Grabando audio...'}</Text>
+              </View>
+            ) : null}
+          </Animated.View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -438,5 +850,15 @@ const styles = StyleSheet.create({
   sideActions: { position: 'absolute', right: 16, alignItems: 'center', gap: 20, zIndex: 10 },
   actionWrap: { alignItems: 'center', gap: 4 },
   actionCircle: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  actionText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' }
+  actionText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  commentsOverlay: { flex: 1, justifyContent: 'flex-end' },
+  commentsPanel: { width: '92%', height: '100%', alignSelf: 'flex-end', borderTopLeftRadius: 24, borderBottomLeftRadius: 24 },
+  commentsHeader: { padding: 16, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  commentRow: { flexDirection: 'row', gap: 10 },
+  commentAvatar: { width: 38, height: 38, borderRadius: 19 },
+  commentInputRow: { borderTopWidth: 1, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  commentInput: { flex: 1, minHeight: 46, borderRadius: 24, paddingHorizontal: 16 },
+  audioBubble: { marginTop: 6, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center' },
+  recordingBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 16 },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }
 });
