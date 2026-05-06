@@ -21,31 +21,55 @@ cloudinary.config({
 
 const upload = multer({ dest: 'uploads/' });
 
+function cleanupUploadedFiles(files = []) {
+    files.forEach((file) => {
+        if (file?.path && fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+        }
+    });
+}
+
 // --- Upload Route ---
-app.post('/api/videos', upload.single('file'), async (req, res) => {
+app.post('/api/videos', upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'files', maxCount: 12 },
+]), async (req, res) => {
+    let files = [];
     try {
         const { title, category, description, id_usuario } = req.body;
-        const file = req.file;
+        files = [
+            ...(req.files?.file || []),
+            ...(req.files?.files || []),
+        ];
 
-        if (!file || !title || !category || !id_usuario) {
-            if (file) fs.unlinkSync(file.path);
+        if (!files.length || !title || !category || !id_usuario) {
+            cleanupUploadedFiles(files);
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
 
-        // Subir a Cloudinary
-        const result = await cloudinary.uploader.upload(file.path, {
-            resource_type: 'auto',
-            folder: 'videos_app'
-        });
+        const uploadedUrls = [];
+        for (const file of files) {
+            const result = await cloudinary.uploader.upload(file.path, {
+                resource_type: 'auto',
+                folder: 'videos_app',
+            });
+            uploadedUrls.push(result.secure_url);
+        }
 
-        // Eliminar archivo temporal
-        fs.unlinkSync(file.path);
+        cleanupUploadedFiles(files);
 
-        const secure_url = result.secure_url;
+        const primaryUrl = uploadedUrls[0];
+        const mediaType = files.length > 1
+            ? 'carousel'
+            : (files[0]?.mimetype || '').startsWith('image/')
+                ? 'image'
+                : 'video';
 
         // Guardar en MongoDB
         const videoDoc = {
-            url: secure_url,
+            url: primaryUrl,
+            mediaUrls: uploadedUrls,
+            mediaType,
             title,
             category,
             description,
@@ -59,7 +83,9 @@ app.post('/api/videos', upload.single('file'), async (req, res) => {
 
         res.status(201).json({
             id: insertResult.insertedId.toString(),
-            url: secure_url,
+            url: primaryUrl,
+            mediaUrls: uploadedUrls,
+            mediaType,
             title,
             category,
             description,
@@ -70,6 +96,7 @@ app.post('/api/videos', upload.single('file'), async (req, res) => {
         });
 
     } catch (error) {
+        cleanupUploadedFiles(files);
         console.error('Error al subir video:', error);
         res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }

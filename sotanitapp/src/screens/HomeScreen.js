@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image, ScrollView } from 'react-native';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,10 +14,69 @@ const isLikelyVideoUrl = (url) => {
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
 };
 
+const MediaCarousel = ({ urls, height }) => {
+  const { colors } = useAppTheme();
+  const [activeDot, setActiveDot] = useState(0);
+  const [width, setWidth] = useState(0);
+
+  const handleScrollEnd = (event) => {
+    if (!width) return;
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+    setActiveDot(Math.max(0, Math.min(nextIndex, urls.length - 1)));
+  };
+
+  return (
+    <View
+      style={[styles.mediaContainer, { height }]}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+    >
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={handleScrollEnd}
+        scrollEventThrottle={16}
+      >
+        {urls.map((url) => (
+          <Image
+            key={url}
+            source={{ uri: url }}
+            resizeMode="cover"
+            style={{ width: width || '100%', height }}
+          />
+        ))}
+      </ScrollView>
+
+      {urls.length > 1 ? (
+        <View style={styles.dotsRow}>
+          {urls.map((_, index) => (
+            <View
+              key={`dot-${index}`}
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: index === activeDot ? colors.white : 'rgba(255,255,255,0.5)',
+                  width: index === activeDot ? 16 : 6,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
 const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
-  const isVideo = isLikelyVideoUrl(video.url);
+  const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
+    ? video.mediaUrls
+    : video.url
+      ? [video.url]
+      : [];
+  const mediaType = video.mediaType || (isLikelyVideoUrl(video.url) ? 'video' : 'image');
+  const isVideo = mediaType === 'video';
 
   useEffect(() => {
     if (!isVideo) return;
@@ -63,6 +122,8 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, liking }) => {
           isMuted={!isActive}
           volume={1.0}
         />
+      ) : mediaUrls.length > 1 ? (
+        <MediaCarousel urls={mediaUrls} height={height} />
       ) : (
         <Image
           source={{ uri: video.url }}
@@ -364,6 +425,9 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },
   emptyText: { fontSize: 16, fontWeight: '600' },
   videoContainer: { width: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+  mediaContainer: { width: '100%', backgroundColor: '#000' },
+  dotsRow: { position: 'absolute', bottom: 18, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  dot: { height: 6, borderRadius: 3 },
   bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%' },
   infoWrapper: { position: 'absolute', left: 16, right: 80, zIndex: 10 },
   title: { marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },

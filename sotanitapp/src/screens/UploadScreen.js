@@ -18,7 +18,8 @@ export default function UploadScreen({ navigation }) {
   const { colors, spacing, typography, textScale } = useAppTheme();
   const { user } = useAuth();
 
-  const [videoFile, setVideoFile] = useState(null);
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [mediaType, setMediaType] = useState(null);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
@@ -75,35 +76,60 @@ export default function UploadScreen({ navigation }) {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      selectionLimit: 12,
       allowsEditing: false,
       quality: 1,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const asset = result.assets[0];
-      if (asset.type && asset.type !== 'video' && asset.type !== 'image') {
-        Alert.alert('Formato invalido', 'Solo se permiten videos o imagenes verticales (9:16).');
+      const assets = result.assets;
+      const types = new Set(assets.map((asset) => asset.type));
+
+      if (types.has('video') && assets.length > 1) {
+        Alert.alert('Solo un video', 'Para videos solo puedes subir uno a la vez.');
         return;
       }
 
-      const { width, height } = await getMediaDimensions(asset);
-      if (!isMobileVideoRatio(width, height)) {
-        Alert.alert('Formato invalido', 'El contenido debe ser vertical (aprox 9:16).');
+      if (types.size > 1) {
+        Alert.alert('Formato invalido', 'Selecciona solo videos o solo imagenes.');
         return;
       }
 
-      setVideoFile({
-        uri: asset.uri,
-        type: asset.type === 'image' ? 'image/jpeg' : 'video/mp4',
-        name: asset.uri.split('/').pop() || 'archivo_subido',
-        // En web, Expo ImagePicker expone un objeto `file` literal que FormData necesita
-        file: Platform.OS === 'web' ? asset.file : undefined, 
-      });
+      const normalizedFiles = [];
+      for (const asset of assets) {
+        if (asset.type && asset.type !== 'video' && asset.type !== 'image') {
+          Alert.alert('Formato invalido', 'Solo se permiten videos o imagenes verticales.');
+          return;
+        }
+
+        const { width, height } = await getMediaDimensions(asset);
+        if (!isMobileVideoRatio(width, height)) {
+          Alert.alert('Formato invalido', 'El contenido debe ser vertical.');
+          return;
+        }
+
+        normalizedFiles.push({
+          uri: asset.uri,
+          type: asset.type === 'image' ? 'image/jpeg' : 'video/mp4',
+          name: asset.uri.split('/').pop() || 'archivo_subido',
+          file: Platform.OS === 'web' ? asset.file : undefined,
+        });
+      }
+
+      const nextMediaType = types.has('video')
+        ? 'video'
+        : assets.length > 1
+          ? 'carousel'
+          : 'image';
+
+      setMediaFiles(normalizedFiles);
+      setMediaType(nextMediaType);
     }
   };
 
   const checkAndUpload = async () => {
-    if (!videoFile || !title || !category) {
+    if (!mediaFiles.length || !title || !category) {
       Alert.alert('Error', 'Debes completar el título, categoría y seleccionar un archivo.');
       return;
     }
@@ -119,14 +145,29 @@ export default function UploadScreen({ navigation }) {
       const formData = new FormData();
       
       // Adjuntar archivo (diferente en Web vs Móvil Nativo)
-      if (Platform.OS === 'web' && videoFile.file) {
-        formData.append('file', videoFile.file);
-      } else {
-        formData.append('file', {
-          uri: videoFile.uri,
-          type: videoFile.type,
-          name: videoFile.name,
+      if (mediaFiles.length > 1) {
+        mediaFiles.forEach((file) => {
+          if (Platform.OS === 'web' && file.file) {
+            formData.append('files', file.file);
+          } else {
+            formData.append('files', {
+              uri: file.uri,
+              type: file.type,
+              name: file.name,
+            });
+          }
         });
+      } else {
+        const file = mediaFiles[0];
+        if (Platform.OS === 'web' && file.file) {
+          formData.append('file', file.file);
+        } else {
+          formData.append('file', {
+            uri: file.uri,
+            type: file.type,
+            name: file.name,
+          });
+        }
       }
 
       // Adjuntar datos adicionales
@@ -140,7 +181,8 @@ export default function UploadScreen({ navigation }) {
       Alert.alert('Éxito', 'Video subido con éxito a Cloudinary y base de datos.');
       
       // Limpiar formulario y navigar
-      setVideoFile(null);
+      setMediaFiles([]);
+      setMediaType(null);
       setTitle('');
       setCategory('');
       setDescription('');
@@ -166,7 +208,7 @@ export default function UploadScreen({ navigation }) {
 
       <ScrollView ref={scrollRef} contentContainerStyle={{ padding: spacing.xl, paddingBottom: 30 }}>
         <View style={{ marginBottom: spacing.lg }}>
-          {!videoFile ? (
+          {!mediaFiles.length ? (
             <Pressable
               onPress={pickVideo}
               style={[styles.uploadArea, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -174,22 +216,26 @@ export default function UploadScreen({ navigation }) {
             >
               <Ionicons name="cloud-upload-outline" size={70} color={colors.textMuted} />
               <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginTop: spacing.sm }}>Selecciona un archivo</Text>
-              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Video o imagen vertical (9:16)</Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Video o carrusel de imagenes verticales</Text>
             </Pressable>
           ) : (
             <View style={[styles.previewArea, { backgroundColor: colors.surface }]}> 
               <View style={[styles.mockVideo, { backgroundColor: `${colors.secondary}22` }]}>
-                {videoFile.type === 'video/mp4' ? (
+                {mediaType === 'video' ? (
                   <Ionicons name="play" size={68} color={colors.textMuted} />
                 ) : (
                   <Ionicons name="image" size={68} color={colors.textMuted} />
                 )}
               </View>
-              <Pressable onPress={() => setVideoFile(null)} style={[styles.removeButton, { backgroundColor: `${colors.black}88` }]} disabled={loading}> 
+              <Pressable onPress={() => { setMediaFiles([]); setMediaType(null); }} style={[styles.removeButton, { backgroundColor: `${colors.black}88` }]} disabled={loading}> 
                 <Ionicons name="close" size={20} color={colors.white} />
               </Pressable>
               <View style={[styles.fileTag, { backgroundColor: `${colors.black}88` }]}> 
-                <Text style={{ color: colors.white, fontWeight: typography.weights.semibold }} numberOfLines={1}>{videoFile.name}</Text>
+                <Text style={{ color: colors.white, fontWeight: typography.weights.semibold }} numberOfLines={1}>
+                  {mediaType === 'carousel'
+                    ? `${mediaFiles.length} imagenes seleccionadas`
+                    : mediaFiles[0]?.name}
+                </Text>
               </View>
             </View>
           )}
@@ -235,7 +281,7 @@ export default function UploadScreen({ navigation }) {
           <AppButton
             title="Publicar video"
             onPress={checkAndUpload}
-            disabled={!videoFile || !title || !category}
+            disabled={!mediaFiles.length || !title || !category}
             style={{ marginTop: spacing.md }}
           />
         )}
