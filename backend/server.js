@@ -438,6 +438,7 @@ const createUserSchema = z.object({
     teamId: z.string().min(1).optional(),
     teamName: z.string().min(1).optional(),
     frameId: z.string().min(1).default('bronce'),
+    profileImageUrl: z.string().min(1).optional(),
 });
 
 function buildNameRegex(name) {
@@ -561,7 +562,7 @@ async function handleCreateUser(req, res) {
     }
 
     try {
-        const { username, email, password, position, frameId, teamId: inputTeamId, teamName } = parsed.data;
+        const { username, email, password, position, frameId, teamId: inputTeamId, teamName, profileImageUrl } = parsed.data;
         const normalizedUsername = username.trim();
 
         const existing = await db.collection('perfiles').findOne({ email: email.toLowerCase() });
@@ -620,6 +621,7 @@ async function handleCreateUser(req, res) {
             position: position.trim(),
             teamId,
             frameId: resolvedFrameId,
+            profileImageUrl: profileImageUrl ? String(profileImageUrl).trim() : null,
             createdAt: new Date(),
         };
 
@@ -637,6 +639,7 @@ async function handleCreateUser(req, res) {
             username: persistedUser.username,
             email: persistedUser.email,
             position: persistedUser.position,
+            profileImageUrl: persistedUser.profileImageUrl ?? null,
             teamId: cardData.resolvedTeamId,
             teamName: cardData.teamName ?? resolvedTeamName,
             teamImageUrl: cardData.teamImageUrl,
@@ -658,7 +661,7 @@ app.post('/api/crearNuevoUsuario', handleCreateUser);
 
 async function handleUpdateUser(req, res) {
     const { id } = req.params;
-    const { username, teamId, teamName, position } = req.body;
+    const { username, teamId, teamName, position, profileImageUrl } = req.body;
 
     if (!id) {
         return res.status(400).json({ message: 'El id del usuario es obligatorio' });
@@ -712,6 +715,10 @@ async function handleUpdateUser(req, res) {
             updateData.position = position.trim();
         }
 
+        if (profileImageUrl) {
+            updateData.profileImageUrl = String(profileImageUrl).trim();
+        }
+
         if (!Object.keys(updateData).length) {
             return res.status(400).json({ message: 'No hay campos para actualizar' });
         }
@@ -735,6 +742,7 @@ async function handleUpdateUser(req, res) {
             username: updatedUser.username,
             email: updatedUser.email,
             position: updatedUser.position,
+            profileImageUrl: updatedUser.profileImageUrl ?? null,
             teamId: cardData.resolvedTeamId,
             teamName: cardData.teamName,
             teamImageUrl: cardData.teamImageUrl,
@@ -780,6 +788,7 @@ async function handleLogin(req, res) {
             username: user.username,
             email: user.email,
             position: user.position,
+            profileImageUrl: user.profileImageUrl ?? null,
             teamId: cardData.resolvedTeamId,
             teamName: cardData.teamName ?? 'Sin equipo',
             teamImageUrl: cardData.teamImageUrl,

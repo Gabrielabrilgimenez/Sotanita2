@@ -73,6 +73,7 @@ export default function TabNavigator({ navigation }) {
     team: isLoggedIn && user?.team ? user.team : 'Sin equipo',
     position: isLoggedIn && user?.position ? user.position : '---',
     rating: isLoggedIn ? 88 : 0,
+    profileImageUrl: isLoggedIn ? user?.profileImageUrl : null,
     teamImageUrl: isLoggedIn ? user?.teamImageUrl : null,
     frameImageId: isLoggedIn ? user?.frameImageId : null,
   };
@@ -357,6 +358,7 @@ export default function TabNavigator({ navigation }) {
             team={profilePreview.team}
             position={profilePreview.position}
             rating={profilePreview.rating}
+            photoUrl={profilePreview.profileImageUrl}
             backgroundUrl={profilePreview.teamImageUrl}
             frameUrl={profilePreview.frameImageId}
             disableShadow

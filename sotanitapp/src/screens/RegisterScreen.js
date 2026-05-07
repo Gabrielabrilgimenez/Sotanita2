@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
@@ -11,6 +12,29 @@ import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
+
+const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+
+  if (typeof globalThis.btoa === 'function') {
+    return globalThis.btoa(binary);
+  }
+
+  if (typeof globalThis.Buffer !== 'undefined') {
+    return globalThis.Buffer.from(binary, 'binary').toString('base64');
+  }
+
+  throw new Error('No se pudo convertir la imagen a base64');
+}
 
 function passwordStrength(password) {
   let score = 0;
@@ -41,6 +65,10 @@ export default function RegisterScreen({ navigation }) {
   const [focusedPicker, setFocusedPicker] = useState(null);
   const [teamOptions, setTeamOptions] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
+  const [photoUri, setPhotoUri] = useState('');
+  const [photoDataUrl, setPhotoDataUrl] = useState('');
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const [registering, setRegistering] = useState(false);
   const [serverError, setServerError] = useState('');
   const scrollRef = useRef(null);
@@ -48,6 +76,95 @@ export default function RegisterScreen({ navigation }) {
   useResetScrollOnFocus(scrollRef);
 
   const strength = useMemo(() => passwordStrength(form.password), [form.password]);
+
+  const pickAndProcessPhoto = async () => {
+    if (!REMOVE_BG_API_KEY) {
+      throw new Error('Falta configurar EXPO_PUBLIC_REMOVE_BG_API_KEY');
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      throw new Error('Permiso de galeria denegado');
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 1,
+    });
+
+    if (result.canceled) {
+      return null;
+    }
+
+    const asset = result.assets?.[0];
+    if (!asset?.uri) {
+      throw new Error('No se pudo leer la imagen seleccionada');
+    }
+
+    const formData = new FormData();
+    formData.append('size', 'auto');
+    formData.append('format', 'png');
+
+    const fileName = asset.fileName || `upload-${Date.now()}.jpg`;
+    const fileType = asset.mimeType || 'image/jpeg';
+
+    if (Platform.OS === 'web') {
+      const fileResponse = await fetch(asset.uri);
+      const imageBlob = await fileResponse.blob();
+      formData.append('image_file', imageBlob, fileName);
+    } else {
+      formData.append('image_file', {
+        uri: asset.uri,
+        name: fileName,
+        type: fileType,
+      });
+    }
+
+    const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+      method: 'POST',
+      headers: {
+        'X-Api-Key': REMOVE_BG_API_KEY,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`remove.bg error ${response.status}: ${errorBody}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = arrayBufferToBase64(arrayBuffer);
+
+    return {
+      uri: `data:image/png;base64,${base64Data}`,
+      dataUrl: `data:image/png;base64,${base64Data}`,
+    };
+  };
+
+  const handleSelectPhoto = async () => {
+    setPhotoError('');
+    setServerError('');
+
+    try {
+      setPhotoLoading(true);
+      const processed = await pickAndProcessPhoto();
+
+      if (!processed) {
+        return;
+      }
+
+      setPhotoUri(processed.uri);
+      setPhotoDataUrl(processed.dataUrl);
+    } catch (error) {
+      const message = error.message || 'No se pudo procesar la foto';
+      setPhotoError(message);
+      Alert.alert('Foto', message);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -98,7 +215,10 @@ export default function RegisterScreen({ navigation }) {
     setServerError('');
 
     try {
-      await register(form);
+      await register({
+        ...form,
+        profileImageUrl: photoDataUrl || undefined,
+      });
     } catch (error) {
       setServerError(error.message || 'No se pudo completar el registro');
     } finally {
@@ -119,6 +239,33 @@ export default function RegisterScreen({ navigation }) {
         <Text style={{ color: colors.textMuted, fontSize: typography.sizes.md * textScale, marginBottom: spacing.xl }}>
           Unete a la comunidad
         </Text>
+
+        <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Foto de jugador</Text>
+        <Pressable
+          onPress={handleSelectPhoto}
+          disabled={photoLoading}
+          style={[
+            styles.photoPicker,
+            {
+              backgroundColor: colors.surface,
+              borderColor: photoError ? colors.danger : photoUri ? colors.success : colors.border,
+            },
+          ]}
+        >
+          {photoLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : photoUri ? (
+            <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
+          ) : (
+            <View style={styles.photoPlaceholder}>
+              <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold }}>Toca para subir tu foto</Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>
+                Se convierte a PNG sin fondo antes de guardarse
+              </Text>
+            </View>
+          )}
+        </Pressable>
+        {photoError ? <Text style={[styles.error, { color: colors.danger }]}>{photoError}</Text> : null}
 
         <AppInput
           label="Nombre de usuario"
@@ -297,5 +444,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
+  },
+  photoPicker: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 18,
+    overflow: 'hidden',
+    minHeight: 136,
+    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  photoPreview: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+  },
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
 });

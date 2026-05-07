@@ -28,16 +28,20 @@ export default function FifaCard({
   size = 'medium',
   disableShadow = false,
   backgroundUrl,
+  photoUrl,
   frameUrl,
   style,
 }) {
   const { colors } = useAppTheme();
   const current = sizes[size] || sizes.medium;
   const [backgroundLoadFailed, setBackgroundLoadFailed] = useState(false);
+  const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
   const [frameLoadFailed, setFrameLoadFailed] = useState(false);
   const normalizedBackgroundUrl = useMemo(() => normalizeRemoteUri(backgroundUrl), [backgroundUrl]);
+  const normalizedPhotoUrl = useMemo(() => normalizeRemoteUri(photoUrl), [photoUrl]);
   const normalizedFrameUrl = useMemo(() => normalizeRemoteUri(frameUrl), [frameUrl]);
   const backgroundSource = normalizedBackgroundUrl && !backgroundLoadFailed ? { uri: normalizedBackgroundUrl } : cardBackground;
+  const photoSource = normalizedPhotoUrl && !photoLoadFailed ? { uri: normalizedPhotoUrl } : null;
   const frameSource = normalizedFrameUrl && !frameLoadFailed ? { uri: normalizedFrameUrl } : cardFrame;
 
   return (
@@ -58,6 +62,17 @@ export default function FifaCard({
         resizeMode="stretch"
         onError={() => setBackgroundLoadFailed(true)}
       />
+
+      {photoSource ? (
+        <View style={styles.photoLayer} pointerEvents="none">
+          <Image
+            source={photoSource}
+            style={{ width: current.width * 0.92, height: current.height * 0.72 }}
+            resizeMode="contain"
+            onError={() => setPhotoLoadFailed(true)}
+          />
+        </View>
+      ) : null}
 
       <View style={[styles.contentLayer, { paddingTop: current.topPad }]}> 
         <View style={styles.footer}>
@@ -101,6 +116,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 12,
+  },
+  photoLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
   contentLayer: {
     ...StyleSheet.absoluteFillObject,

@@ -212,6 +212,7 @@ export default function MyVideosScreen({ navigation, route }) {
             username={user?.username || activeVideo?.user || 'usuario'}
             team={user?.team || 'Sin equipo'}
             position={user?.position || '---'}
+            photoUrl={user?.profileImageUrl}
             backgroundUrl={user?.teamImageUrl}
             frameUrl={user?.frameImageId}
           />

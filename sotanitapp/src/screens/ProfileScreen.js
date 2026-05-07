@@ -154,6 +154,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               team={profile.team}
               position={profile.position}
               rating={requireLogin ? 0 : 88}
+              photoUrl={profile.profileImageUrl}
               backgroundUrl={profile.teamImageUrl}
               frameUrl={profile.frameImageId}
               size="xlarge"
