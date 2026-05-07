@@ -14,15 +14,21 @@ const isLikelyVideoUrl = (url) => {
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
 };
 
-const MediaCarousel = ({ urls, height }) => {
-  const { colors } = useAppTheme();
-  const [activeDot, setActiveDot] = useState(0);
+const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
   const [width, setWidth] = useState(0);
+  const lastIndexRef = useRef(activeIndex || 0);
 
-  const handleScrollEnd = (event) => {
+  useEffect(() => {
+    lastIndexRef.current = activeIndex || 0;
+  }, [activeIndex]);
+
+  const updateIndexFromOffset = (offsetX) => {
     if (!width) return;
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
-    setActiveDot(Math.max(0, Math.min(nextIndex, urls.length - 1)));
+    const nextIndex = Math.max(0, Math.min(Math.round(offsetX / width), urls.length - 1));
+    if (nextIndex !== lastIndexRef.current) {
+      lastIndexRef.current = nextIndex;
+      onIndexChange(nextIndex);
+    }
   };
 
   return (
@@ -34,7 +40,8 @@ const MediaCarousel = ({ urls, height }) => {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={handleScrollEnd}
+        onMomentumScrollEnd={(event) => updateIndexFromOffset(event.nativeEvent.contentOffset.x)}
+        onScroll={(event) => updateIndexFromOffset(event.nativeEvent.contentOffset.x)}
         scrollEventThrottle={16}
       >
         {urls.map((url) => (
@@ -47,27 +54,23 @@ const MediaCarousel = ({ urls, height }) => {
         ))}
       </ScrollView>
 
-      {urls.length > 1 ? (
-        <View style={styles.dotsRow}>
-          {urls.map((_, index) => (
-            <View
-              key={`dot-${index}`}
-              style={[
-                styles.dot,
-                {
-                  backgroundColor: index === activeDot ? colors.white : 'rgba(255,255,255,0.5)',
-                  width: index === activeDot ? 16 : 6,
-                },
-              ]}
-            />
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 };
 
-const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, commentsCount, liking, isAudioPlaying }) => {
+const FeedVideoItem = ({
+  video,
+  isActive,
+  height,
+  onLikePress,
+  onCommentPress,
+  commentsCount,
+  liking,
+  isAudioPlaying,
+  isRecording,
+  carouselIndex,
+  onCarouselIndexChange,
+}) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
   const lastTapRef = useRef(0);
@@ -92,7 +95,7 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
       if (!videoRef.current || cancelled) return;
 
       try {
-        if (isActive && !isAudioPlaying) {
+        if (isActive && !isAudioPlaying && !isRecording) {
           await videoRef.current.playAsync();
         } else {
           await videoRef.current.pauseAsync();
@@ -108,7 +111,7 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
     return () => {
       cancelled = true;
     };
-  }, [isActive, isVideo, isAudioPlaying]);
+  }, [isActive, isVideo, isAudioPlaying, isRecording]);
 
   const handleMediaTap = () => {
     const now = Date.now();
@@ -127,12 +130,17 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
           source={{ uri: video.url }}
           resizeMode={ResizeMode.CONTAIN}
           isLooping
-          shouldPlay={isActive && !isAudioPlaying}
-          isMuted={!isActive || isAudioPlaying}
+          shouldPlay={isActive && !isAudioPlaying && !isRecording}
+          isMuted={!isActive || isAudioPlaying || isRecording}
           volume={1.0}
         />
       ) : mediaUrls.length > 1 ? (
-        <MediaCarousel urls={mediaUrls} height={height} />
+        <MediaCarousel
+          urls={mediaUrls}
+          height={height}
+          activeIndex={carouselIndex}
+          onIndexChange={onCarouselIndexChange}
+        />
       ) : (
         <Image
           source={{ uri: video.url }}
@@ -208,7 +216,9 @@ export default function HomeScreen({ navigation }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [commentsByVideo, setCommentsByVideo] = useState({});
+  const [carouselIndexByVideo, setCarouselIndexByVideo] = useState({});
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [pendingDeleteComment, setPendingDeleteComment] = useState(null);
   const commentsAnim = useRef(new Animated.Value(0)).current;
   const screenWidth = Dimensions.get('window').width;
   const recordingRef = useRef(null);
@@ -366,9 +376,9 @@ export default function HomeScreen({ navigation }) {
   }, [isLoggedIn, user?.email, likingVideoId]);
 
   const mapComment = useCallback((comment) => ({
-    id: comment.id,
+    id: comment.id || comment._id,
     author: comment.username,
-    userId: comment.userId,
+    userId: comment.userId || comment.id_usuario,
     type: comment.type,
     content: comment.type === 'audio' ? null : comment.text,
     audioUrl: comment.audioUrl,
@@ -408,6 +418,7 @@ export default function HomeScreen({ navigation }) {
       setSelectedVideoId(null);
       setCommentText('');
       setIsRecording(false);
+      setPendingDeleteComment(null);
     });
   }, [commentsAnim]);
 
@@ -487,32 +498,40 @@ export default function HomeScreen({ navigation }) {
     listRef.current.scrollToOffset({ offset: 0, animated: false });
   }, [selectedCategory]);
 
-  const handleDeleteComment = useCallback((commentId) => {
-    if (!selectedVideoId || !commentId || !user?.email) return;
-    Alert.alert('Eliminar comentario', 'Quieres eliminar este comentario?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Borrar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteVideoComment(commentId, user.email);
-            setCommentsByVideo((prev) => ({
-              ...prev,
-              [selectedVideoId]: (prev[selectedVideoId] || []).filter((c) => c.id !== commentId),
-            }));
-            setVideos((prev) => prev.map((item) => (
-              item.id === selectedVideoId
-                ? { ...item, commentsCount: Math.max(0, (item.commentsCount || 0) - 1) }
-                : item
-            )));
-          } catch (error) {
-            Alert.alert('Error', error.message || 'No se pudo eliminar el comentario.');
-          }
-        },
-      },
-    ]);
-  }, [selectedVideoId, user?.email]);
+  const handleDeleteComment = useCallback((comment) => {
+    if (!comment) return;
+    setPendingDeleteComment(comment);
+  }, []);
+
+  const confirmDeleteComment = useCallback(async () => {
+    if (!selectedVideoId || !pendingDeleteComment || !user?.email) {
+      setPendingDeleteComment(null);
+      return;
+    }
+
+    const commentId = pendingDeleteComment.id || pendingDeleteComment._id;
+    if (!commentId) {
+      setPendingDeleteComment(null);
+      return;
+    }
+
+    try {
+      await deleteVideoComment(commentId, user.email);
+      setCommentsByVideo((prev) => ({
+        ...prev,
+        [selectedVideoId]: (prev[selectedVideoId] || []).filter((c) => (c.id || c._id) !== commentId),
+      }));
+      setVideos((prev) => prev.map((item) => (
+        item.id === selectedVideoId
+          ? { ...item, commentsCount: Math.max(0, (item.commentsCount || 0) - 1) }
+          : item
+      )));
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo eliminar el comentario.');
+    } finally {
+      setPendingDeleteComment(null);
+    }
+  }, [pendingDeleteComment, selectedVideoId, user?.email]);
 
   const handleStopRecording = useCallback(async () => {
     if (!selectedVideoId) return;
@@ -629,6 +648,10 @@ export default function HomeScreen({ navigation }) {
 
   const handleSendComment = useCallback(async () => {
     if (!selectedVideoId) return;
+    if (!isLoggedIn || !user?.email) {
+      Alert.alert('Inicia sesion', 'Debes iniciar sesion para comentar.');
+      return;
+    }
     if (isUploadingAudio) {
       Alert.alert('Espera', 'Se esta subiendo el audio.');
       return;
@@ -674,6 +697,10 @@ export default function HomeScreen({ navigation }) {
 
   const handleToggleRecording = useCallback(async () => {
     if (!selectedVideoId) return;
+    if (!isLoggedIn || !user?.email) {
+      Alert.alert('Inicia sesion', 'Debes iniciar sesion para comentar.');
+      return;
+    }
 
     if (isUploadingAudio || isRecording) return;
 
@@ -753,6 +780,22 @@ export default function HomeScreen({ navigation }) {
   }, [updateActiveIndexFromOffset]);
 
   const activeComments = selectedVideoId ? (commentsByVideo[selectedVideoId] || []) : [];
+  const activeVideo = visibleVideos[activeIndex];
+  const activeMediaUrls = Array.isArray(activeVideo?.mediaUrls) && activeVideo?.mediaUrls?.length
+    ? activeVideo.mediaUrls
+    : activeVideo?.url
+      ? [activeVideo.url]
+      : [];
+  const activeMediaType = activeVideo?.mediaType || (isLikelyVideoUrl(activeVideo?.url) ? 'video' : 'image');
+  const showCarouselDots = activeMediaType === 'carousel' || activeMediaUrls.length > 1;
+  const activeCarouselIndex = carouselIndexByVideo[activeVideo?.id] || 0;
+
+  const handleCarouselIndexChange = useCallback((videoId, index) => {
+    setCarouselIndexByVideo((prev) => ({
+      ...prev,
+      [videoId]: index,
+    }));
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -783,6 +826,25 @@ export default function HomeScreen({ navigation }) {
         </ScrollView>
       </View>
 
+      {showCarouselDots ? (
+        <View style={styles.carouselDotsBar}>
+          <View style={styles.carouselDotsRow}>
+            {activeMediaUrls.map((_, index) => (
+              <View
+                key={`carousel-dot-${index}`}
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor: index === activeCarouselIndex ? colors.primary : colors.border,
+                    width: index === activeCarouselIndex ? 16 : 6,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
       {loading && videos.length === 0 ? (
         <View style={styles.loaderContainer}>
@@ -802,7 +864,10 @@ export default function HomeScreen({ navigation }) {
                onCommentPress={openComments}
                commentsCount={item.commentsCount ?? (commentsByVideo[item.id] || []).length}
                isAudioPlaying={isAudioPlaying}
+              isRecording={isRecording}
                liking={likingVideoId === item.id}
+              carouselIndex={carouselIndexByVideo[item.id] || 0}
+              onCarouselIndexChange={(nextIndex) => handleCarouselIndexChange(item.id, nextIndex)}
             />
           )}
           keyExtractor={(item) => item.id.toString()}
@@ -858,7 +923,7 @@ export default function HomeScreen({ navigation }) {
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
               {activeComments.length === 0 ? (
                 <Text style={{ color: colors.textMuted }}>No hay comentarios todavia.</Text>
               ) : (
@@ -869,8 +934,12 @@ export default function HomeScreen({ navigation }) {
                       <View style={styles.commentHeaderRow}>
                         <Text style={{ color: colors.text, fontWeight: '700' }}>@{comment.author || comment.username}</Text>
                         {String(comment.userId || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ? (
-                          <Pressable onPress={() => handleDeleteComment(comment.id)} style={styles.commentDelete}>
-                            <Ionicons name="trash" size={16} color={colors.danger} />
+                          <Pressable
+                            onPress={() => handleDeleteComment(comment)}
+                            style={[styles.commentDelete, { backgroundColor: colors.danger }]}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="trash" size={14} color={colors.white} />
                           </Pressable>
                         ) : null}
                       </View>
@@ -899,22 +968,53 @@ export default function HomeScreen({ navigation }) {
               )}
             </ScrollView>
 
+            {pendingDeleteComment ? (
+              <View style={styles.deleteConfirmOverlay}>
+                <View style={[styles.deleteConfirmCard, { backgroundColor: colors.surface }]}> 
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>
+                    Desea borrar el comentario
+                  </Text>
+                  <View style={styles.deleteConfirmActions}>
+                    <Pressable
+                      style={[styles.deleteConfirmButton, { backgroundColor: colors.surfaceElevated }]}
+                      onPress={() => setPendingDeleteComment(null)}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.deleteConfirmButton, { backgroundColor: colors.danger }]}
+                      onPress={confirmDeleteComment}
+                    >
+                      <Text style={{ color: colors.white, fontWeight: '700' }}>Borrar</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
             <View style={[styles.commentInputRow, { borderTopColor: colors.border }]}> 
               <TextInput
                 value={commentText}
                 onChangeText={setCommentText}
-                placeholder="Escribe un comentario..."
+                placeholder={isLoggedIn ? 'Escribe un comentario...' : 'Inicia sesion para comentar'}
                 placeholderTextColor={colors.textMuted}
                 style={[styles.commentInput, { backgroundColor: colors.surfaceElevated, color: colors.text }]}
-                editable={!isRecording && !isUploadingAudio}
+                editable={isLoggedIn && !isRecording && !isUploadingAudio}
+                showSoftInputOnFocus={isLoggedIn}
+                focusable={isLoggedIn}
               />
               <Pressable
-                style={[styles.actionCircle, { backgroundColor: isRecording ? colors.primary : colors.surfaceElevated }]}
+                disabled={!isLoggedIn}
+                style={[styles.actionCircle, { backgroundColor: isRecording ? colors.primary : colors.surfaceElevated, opacity: isLoggedIn ? 1 : 0.5 }]}
                 onPress={handleToggleRecording}
               >
                 <Ionicons name="mic" size={18} color={isRecording ? colors.black : colors.text} />
               </Pressable>
-              <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary }]} onPress={handleSendComment}>
+              <Pressable
+                disabled={!isLoggedIn}
+                style={[styles.actionCircle, { backgroundColor: colors.primary, opacity: isLoggedIn ? 1 : 0.5 }]}
+                onPress={handleSendComment}
+              >
                 <Ionicons name="send" size={18} color={colors.black} />
               </Pressable>
             </View>
@@ -936,6 +1036,8 @@ const styles = StyleSheet.create({
   categoryBar: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
   categoryRow: { gap: 8, paddingRight: 12 },
   categoryChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
+  carouselDotsBar: { paddingTop: 2, paddingBottom: 8, alignItems: 'center' },
+  carouselDotsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   listWrap: { flex: 1 },
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },
@@ -960,11 +1062,15 @@ const styles = StyleSheet.create({
   commentsHeader: { padding: 16, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   commentRow: { flexDirection: 'row', gap: 10 },
   commentHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  commentDelete: { marginLeft: 8, padding: 4 },
+  commentDelete: { marginLeft: 8, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   commentAvatar: { width: 38, height: 38, borderRadius: 19 },
   commentInputRow: { borderTopWidth: 1, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
   commentInput: { flex: 1, minHeight: 46, borderRadius: 24, paddingHorizontal: 16 },
   audioBubble: { marginTop: 6, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center' },
   recordingBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 16 },
-  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
+  deleteConfirmOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
+  deleteConfirmCard: { width: '80%', borderRadius: 16, padding: 16, alignItems: 'center' },
+  deleteConfirmActions: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  deleteConfirmButton: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20 },
 });

@@ -301,7 +301,7 @@ export default function TabNavigator({ navigation }) {
                 <View style={styles.iconWrap}>
                   <Ionicons name={icon} color={color} size={24} />
                   {unreadCount > 0 ? (
-                    <View style={[styles.badge, { backgroundColor: colors.danger }]}> 
+                    <View style={[styles.badge, { backgroundColor: colors.primary }]}> 
                       <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                     </View>
                   ) : null}
