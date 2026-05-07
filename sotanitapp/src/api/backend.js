@@ -107,6 +107,12 @@ export async function getVideoCategories() {
   return getCategories();
 }
 
+export async function getPositions() {
+  const response = await fetch(buildApiUrl('/api/posiciones'));
+  const data = await parseResponse(response);
+  return data.posiciones || data.positions || [];
+}
+
 export async function getAllVideos(limit = 20, maxPages = 50) {
   const all = [];
   let offset = 0;

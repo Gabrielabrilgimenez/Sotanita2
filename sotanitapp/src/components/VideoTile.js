@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { formatLikes } from '../utils/format';
 
@@ -17,6 +18,35 @@ export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
   const isCarousel = mediaType === 'carousel' || mediaUrls.length > 1;
   const isImage = mediaType === 'image' || isCarousel;
   const isVideo = !isImage;
+  const [videoThumbnail, setVideoThumbnail] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadThumbnail = async () => {
+      if (!isVideo || !mediaUrls[0]) {
+        if (isMounted) setVideoThumbnail(null);
+        return;
+      }
+
+      try {
+        const result = await VideoThumbnails.getThumbnailAsync(mediaUrls[0], { time: 0 });
+        if (isMounted) {
+          setVideoThumbnail(result?.uri || null);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setVideoThumbnail(null);
+        }
+      }
+    };
+
+    loadThumbnail();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isVideo, mediaUrls]);
 
   return (
     <Pressable onPress={onPress} style={[styles.tile, { backgroundColor: colors.surface }]}> 
@@ -24,25 +54,29 @@ export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
         {isImage ? (
           <Image source={{ uri: mediaUrls[0] }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
         ) : isVideo ? (
-          <Video
-            ref={videoRef}
-            source={{ uri: mediaUrls[0] }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false}
-            isLooping={false}
-            isMuted
-            onLoad={async () => {
-              try {
-                if (videoRef.current) {
-                  await videoRef.current.pauseAsync();
-                  await videoRef.current.setPositionAsync(0);
+          videoThumbnail ? (
+            <Image source={{ uri: videoThumbnail }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+          ) : (
+            <Video
+              ref={videoRef}
+              source={{ uri: mediaUrls[0] }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={false}
+              isLooping={false}
+              isMuted
+              onLoad={async () => {
+                try {
+                  if (videoRef.current) {
+                    await videoRef.current.pauseAsync();
+                    await videoRef.current.setPositionAsync(0);
+                  }
+                } catch (error) {
+                  // Ignore thumbnail load errors to avoid blocking UI.
                 }
-              } catch (error) {
-                // Ignore thumbnail load errors to avoid blocking UI.
-              }
-            }}
-          />
+              }}
+            />
+          )
         ) : null}
         <Ionicons name={isImage ? (isCarousel ? 'images' : 'image') : 'play'} size={24} color={`${colors.textMuted}CC`} />
       </View>

@@ -1,19 +1,17 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllVideos, getTeamNames } from '../api/backend';
+import { getAllVideos, getPositions, getTeamNames } from '../api/backend';
 import ScreenGradient from '../components/ScreenGradient';
 import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import VideoTile from '../components/VideoTile';
-import { positions } from '../utils/mockData';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -45,19 +43,30 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [activeTab, setActiveTab] = useState('uploaded');
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState('');
-  const [focusedPicker, setFocusedPicker] = useState(false);
   const [teamOptions, setTeamOptions] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
+  const [positionOptions, setPositionOptions] = useState([]);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+  const [showPositionPicker, setShowPositionPicker] = useState(false);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [savingChanges, setSavingChanges] = useState(false);
   const [editError, setEditError] = useState('');
+  const [positionsError, setPositionsError] = useState('');
   const [uploadedVideos, setUploadedVideos] = useState([]);
   const [likedVideos, setLikedVideos] = useState([]);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const scrollRef = useRef(null);
 
-  const selectFontSize = 18 * textScale;
+  const selectFontSize = 26 * textScale;
+  const selectItemFontSize = 22 * textScale;
+  const selectTeamItemFontSize = 16 * textScale;
   const selectTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
+  const selectBackground = `${colors.surface}99`;
+  const teamColumnHighlight = highContrast ? `${colors.primary}22` : darkMode ? `${colors.white}08` : `${colors.black}08`;
+  const positionLabel = tempValue || 'Selecciona una posicion';
+  const teamLabel = tempValue || 'Selecciona un equipo';
 
   useResetScrollOnFocus(scrollRef);
 
@@ -87,6 +96,20 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
         console.error('Error cargando equipos:', error);
       } finally {
         setLoadingTeams(false);
+      }
+    }
+
+    if (field === 'position') {
+      setLoadingPositions(true);
+      setPositionsError('');
+      try {
+        const data = await getPositions();
+        setPositionOptions(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Error cargando posiciones:', error);
+        setPositionsError(error.message || 'No se pudieron cargar las posiciones');
+      } finally {
+        setLoadingPositions(false);
       }
     }
   };
@@ -166,6 +189,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       }
       await updateUser({ profileImageUrl: processed.dataUrl });
       Alert.alert('Éxito', 'Foto de perfil actualizada');
+      setShowPhotoModal(false);
     } catch (error) {
       const message = error.message || 'No se pudo cambiar la foto';
       Alert.alert('Error', message);
@@ -179,15 +203,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
     if (!isLoggedIn) {
       return;
     }
-
-    Alert.alert(
-      '¿Cambiar foto de perfil?',
-      'Toca "Cambiar" para seleccionar una nueva foto',
-      [
-        { text: 'Cancelar', onPress: () => {}, style: 'cancel' },
-        { text: 'Cambiar', onPress: handleChangePhoto },
-      ]
-    );
+    setShowPhotoModal(true);
   };
 
   const saveEdit = async () => {
@@ -276,18 +292,29 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 
         <View style={{ alignItems: 'center', minHeight: 246 }}>
           {!hideProfileCard ? (
-            <FifaCard
-              username={profile.username}
-              team={profile.team}
-              position={profile.position}
-              rating={requireLogin ? 0 : 88}
-              photoUrl={profile.profileImageUrl}
-              backgroundUrl={profile.teamImageUrl}
-              frameUrl={profile.frameImageId}
-              size="xlarge"
-              disableShadow
-              onPress={handleCardPress}
-            />
+            <View style={styles.profileCardWrap}>
+              <FifaCard
+                username={profile.username}
+                team={profile.team}
+                position={profile.position}
+                rating={requireLogin ? 0 : 88}
+                photoUrl={profile.profileImageUrl}
+                backgroundUrl={profile.teamImageUrl}
+                frameUrl={profile.frameImageId}
+                size="xlarge"
+                disableShadow
+                onPress={handleCardPress}
+              />
+              {isLoggedIn ? (
+                <Pressable
+                  style={[styles.editPhotoButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                  onPress={() => setShowPhotoModal(true)}
+                  disabled={photoLoading}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.primary} />
+                </Pressable>
+              ) : null}
+            </View>
           ) : null}
         </View>
 
@@ -383,61 +410,196 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               <>
                 <View
                   style={[
-                    styles.pickerWrap,
-                    {
-                      backgroundColor: colors.surfaceElevated,
-                      borderColor: focusedPicker ? colors.primary : colors.border,
-                    },
+                    styles.selectWrap,
+                    { backgroundColor: selectBackground },
                   ]}
                 >
-                  <Picker
-                    selectedValue={tempValue}
-                    style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
-                    itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
-                    dropdownIconColor={selectTextColor}
-                    onFocus={() => setFocusedPicker(true)}
-                    onBlur={() => setFocusedPicker(false)}
-                    onValueChange={setTempValue}
-                  >
-                    <Picker.Item label="Selecciona un equipo" value="" color={selectTextColor} />
-                    {teamOptions.map((team) => (
-                      <Picker.Item key={team} label={team} value={team} color={selectTextColor} />
-                    ))}
-                  </Picker>
+                  <Pressable style={styles.selectButton} onPress={() => setShowTeamPicker(true)}>
+                    <Text
+                      style={{
+                        color: selectTextColor,
+                        fontFamily: typography.families.nougat,
+                        fontSize: selectFontSize,
+                        textAlign: 'center',
+                        flex: 1,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {teamLabel}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={selectTextColor} />
+                  </Pressable>
                 </View>
                 {loadingTeams ? <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando equipos...</Text> : null}
               </>
             ) : (
               <View
                 style={[
-                  styles.pickerWrap,
-                  {
-                    backgroundColor: colors.surfaceElevated,
-                    borderColor: focusedPicker ? colors.primary : colors.border,
-                  },
+                  styles.selectWrap,
+                  { backgroundColor: selectBackground },
                 ]}
               >
-                <Picker
-                  selectedValue={tempValue}
-                  style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
-                  itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
-                  dropdownIconColor={selectTextColor}
-                  onFocus={() => setFocusedPicker(true)}
-                  onBlur={() => setFocusedPicker(false)}
-                  onValueChange={setTempValue}
-                >
-                  {positions.map((item) => (
-                    <Picker.Item key={item} label={item} value={item} color={selectTextColor} />
-                  ))}
-                </Picker>
+                <Pressable style={styles.selectButton} onPress={() => setShowPositionPicker(true)}>
+                  <Text
+                    style={{
+                      color: selectTextColor,
+                      fontFamily: typography.families.nougat,
+                      fontSize: selectFontSize,
+                      textAlign: 'center',
+                      flex: 1,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {positionLabel}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={selectTextColor} />
+                </Pressable>
               </View>
             )}
 
             {editingField !== 'username' && editError ? <Text style={[styles.error, { color: colors.danger }]}>{editError}</Text> : null}
+            {editingField === 'position' && loadingPositions ? (
+              <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando posiciones...</Text>
+            ) : null}
+            {editingField === 'position' && positionsError ? (
+              <Text style={[styles.error, { color: colors.danger }]}>{positionsError}</Text>
+            ) : null}
 
             <View style={styles.modalActions}>
               <AppButton title="Cancelar" variant="secondary" onPress={() => setEditingField(null)} style={{ flex: 1 }} />
               <AppButton title="Guardar" onPress={saveEdit} loading={savingChanges} style={{ flex: 1 }} />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showPositionPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPositionPicker(false)}
+      >
+        <Pressable
+          style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowPositionPicker(false)}
+        >
+          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable
+              onPress={() => {
+                setTempValue('');
+                setShowPositionPicker(false);
+              }}
+              style={[styles.selectMenuItem, tempValue === '' && { backgroundColor: `${colors.primary}22` }]}
+            >
+              <Text
+                style={{
+                  color: selectTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: selectItemFontSize,
+                  textAlign: 'center',
+                }}
+              >
+                Selecciona una posicion
+              </Text>
+            </Pressable>
+            {positionOptions.map((item) => (
+              <Pressable
+                key={item}
+                onPress={() => {
+                  setTempValue(item);
+                  setShowPositionPicker(false);
+                }}
+                style={[styles.selectMenuItem, item === tempValue && { backgroundColor: `${colors.primary}22` }]}
+              >
+                <Text
+                  style={{
+                    color: selectTextColor,
+                    fontFamily: typography.families.nougat,
+                    fontSize: selectItemFontSize,
+                    textAlign: 'center',
+                  }}
+                >
+                  {item}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showTeamPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTeamPicker(false)}
+      >
+        <Pressable
+          style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowTeamPicker(false)}
+        >
+          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable
+              onPress={() => {
+                setTempValue('');
+                setShowTeamPicker(false);
+              }}
+              style={[styles.selectMenuItem, tempValue === '' && { backgroundColor: `${colors.primary}22` }]}
+            >
+              <Text
+                style={{
+                  color: selectTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: selectItemFontSize,
+                  textAlign: 'center',
+                }}
+              >
+                Selecciona un equipo
+              </Text>
+            </Pressable>
+            <View style={styles.selectMenuGrid}>
+              {teamOptions.map((team, index) => (
+                <Pressable
+                  key={team}
+                  onPress={() => {
+                    setTempValue(team);
+                    setShowTeamPicker(false);
+                  }}
+                  style={[
+                    styles.selectMenuItem,
+                    styles.selectMenuItemThird,
+                    index % 3 === 1 && { backgroundColor: teamColumnHighlight },
+                    team === tempValue && { backgroundColor: `${colors.primary}22` },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: selectTextColor,
+                      fontFamily: typography.families.nougat,
+                      fontSize: selectTeamItemFontSize,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {team}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showPhotoModal} transparent animationType="fade" onRequestClose={() => setShowPhotoModal(false)}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => setShowPhotoModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface }]} onPress={() => {}}>
+            <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, marginBottom: spacing.sm }}>
+              Cambiar foto de perfil
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, marginBottom: spacing.md }}>
+              Selecciona una nueva foto para actualizar tu carta.
+            </Text>
+            <View style={styles.modalActions}>
+              <AppButton title="Cancelar" variant="secondary" onPress={() => setShowPhotoModal(false)} style={{ flex: 1 }} />
+              <AppButton title="Cambiar" onPress={handleChangePhoto} loading={photoLoading} style={{ flex: 1 }} />
             </View>
           </Pressable>
         </Pressable>
@@ -511,12 +673,41 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
-  pickerWrap: {
-    borderWidth: 1,
-    borderRadius: 14,
+  selectWrap: {
+    borderWidth: 0,
+    borderRadius: 18,
     marginBottom: 12,
     minHeight: 52,
     justifyContent: 'center',
+  },
+  selectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  selectOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 18,
+  },
+  selectMenu: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  selectMenuItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  selectMenuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  selectMenuItemThird: {
+    width: '33.3333%',
   },
   modalActions: {
     flexDirection: 'row',
@@ -538,5 +729,19 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 14,
     alignItems: 'center',
+  },
+  profileCardWrap: {
+    position: 'relative',
+  },
+  editPhotoButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

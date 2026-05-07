@@ -17,10 +17,10 @@ const baseWidth = 100;
 const baseMetrics = {
   title: 14,
   position: 10,
-  topPad: 9,
-  footerBottom: 20,
+  topPad: 10,
+  footerBottom: 17,
   borderRadius: 12,
-  marginBottom: 4,
+  marginBottom: 0,
 };
 
 function getCardMetrics(size) {

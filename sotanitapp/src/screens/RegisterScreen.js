@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { positions } from '../utils/mockData';
-import { getTeamNames } from '../api/backend';
+import { getPositions, getTeamNames } from '../api/backend';
 import { emailRegex } from '../utils/format';
 import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
@@ -48,7 +47,7 @@ function passwordStrength(password) {
 
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
-  const { colors, spacing, typography, textScale } = useAppTheme();
+  const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
 
   const [form, setForm] = useState({
     username: '',
@@ -62,20 +61,32 @@ export default function RegisterScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState({});
-  const [focusedPicker, setFocusedPicker] = useState(null);
   const [teamOptions, setTeamOptions] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
+  const [positionOptions, setPositionOptions] = useState([]);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+  const [showPositionPicker, setShowPositionPicker] = useState(false);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
   const [photoUri, setPhotoUri] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [registering, setRegistering] = useState(false);
   const [serverError, setServerError] = useState('');
+  const [positionsError, setPositionsError] = useState('');
   const scrollRef = useRef(null);
 
   useResetScrollOnFocus(scrollRef);
 
   const strength = useMemo(() => passwordStrength(form.password), [form.password]);
+  const selectFontSize = 26 * textScale;
+  const selectItemFontSize = 22 * textScale;
+  const selectTeamItemFontSize = 16 * textScale;
+  const selectTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
+  const selectBackground = `${colors.surface}99`;
+  const teamColumnHighlight = highContrast ? `${colors.primary}22` : darkMode ? `${colors.white}08` : `${colors.black}08`;
+  const positionLabel = form.position || 'Selecciona tu posicion';
+  const teamLabel = form.team || 'Selecciona tu equipo';
 
   const pickAndProcessPhoto = async () => {
     if (!REMOVE_BG_API_KEY) {
@@ -189,7 +200,28 @@ export default function RegisterScreen({ navigation }) {
       }
     };
 
+    const loadPositions = async () => {
+      setLoadingPositions(true);
+      setPositionsError('');
+
+      try {
+        const data = await getPositions();
+        if (isMounted) {
+          setPositionOptions(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setPositionsError(error.message || 'No se pudieron cargar las posiciones');
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingPositions(false);
+        }
+      }
+    };
+
     loadTeams();
+    loadPositions();
 
     return () => {
       isMounted = false;
@@ -278,54 +310,52 @@ export default function RegisterScreen({ navigation }) {
         <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Posicion</Text>
         <View
           style={[
-            styles.pickerWrap,
-            {
-              backgroundColor: colors.surface,
-              borderColor: errors.position ? colors.danger : focusedPicker === 'position' ? colors.primary : colors.border,
-            },
+            styles.selectWrap,
+            { backgroundColor: selectBackground },
           ]}
         >
-          <Picker
-            selectedValue={form.position}
-            style={{ color: colors.text, backgroundColor: 'transparent' }}
-            itemStyle={{ color: colors.text }}
-            dropdownIconColor={colors.text}
-            onFocus={() => setFocusedPicker('position')}
-            onBlur={() => setFocusedPicker(null)}
-            onValueChange={(position) => setForm((prev) => ({ ...prev, position }))}
-          >
-            <Picker.Item label="Selecciona tu posicion" value="" color={colors.textMuted} />
-            {positions.map((position) => (
-              <Picker.Item key={position} label={position} value={position} color="#111827" />
-            ))}
-          </Picker>
+          <Pressable style={styles.selectButton} onPress={() => setShowPositionPicker(true)}>
+            <Text
+              style={{
+                color: selectTextColor,
+                fontFamily: typography.families.nougat,
+                fontSize: selectFontSize,
+                textAlign: 'center',
+                flex: 1,
+              }}
+              numberOfLines={1}
+            >
+              {positionLabel}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={selectTextColor} />
+          </Pressable>
         </View>
         {errors.position ? <Text style={[styles.error, { color: colors.danger }]}>{errors.position}</Text> : null}
+        {loadingPositions ? <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando posiciones...</Text> : null}
+        {positionsError ? <Text style={[styles.error, { color: colors.danger }]}>{positionsError}</Text> : null}
 
         <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Equipo favorito</Text>
         <View
           style={[
-            styles.pickerWrap,
-            {
-              backgroundColor: colors.surface,
-              borderColor: errors.team ? colors.danger : focusedPicker === 'team' ? colors.primary : colors.border,
-            },
+            styles.selectWrap,
+            { backgroundColor: selectBackground },
           ]}
         >
-          <Picker
-            selectedValue={form.team}
-            style={{ color: colors.text, backgroundColor: 'transparent' }}
-            itemStyle={{ color: colors.text }}
-            dropdownIconColor={colors.text}
-            onFocus={() => setFocusedPicker('team')}
-            onBlur={() => setFocusedPicker(null)}
-            onValueChange={(team) => setForm((prev) => ({ ...prev, team }))}
-          >
-            <Picker.Item label="Selecciona tu equipo" value="" color={colors.textMuted} />
-            {teamOptions.map((team) => (
-              <Picker.Item key={team} label={team} value={team} color="#111827" />
-            ))}
-          </Picker>
+          <Pressable style={styles.selectButton} onPress={() => setShowTeamPicker(true)}>
+            <Text
+              style={{
+                color: selectTextColor,
+                fontFamily: typography.families.nougat,
+                fontSize: selectFontSize,
+                textAlign: 'center',
+                flex: 1,
+              }}
+              numberOfLines={1}
+            >
+              {teamLabel}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={selectTextColor} />
+          </Pressable>
         </View>
         {errors.team ? <Text style={[styles.error, { color: colors.danger }]}>{errors.team}</Text> : null}
         {loadingTeams ? <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando equipos...</Text> : null}
@@ -401,6 +431,121 @@ export default function RegisterScreen({ navigation }) {
           </Pressable>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showPositionPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPositionPicker(false)}
+      >
+        <Pressable
+          style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowPositionPicker(false)}
+        >
+          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable
+              onPress={() => {
+                setForm((prev) => ({ ...prev, position: '' }));
+                setShowPositionPicker(false);
+              }}
+              style={[styles.selectMenuItem, form.position === '' && { backgroundColor: `${colors.primary}22` }]}
+            >
+              <Text
+                style={{
+                  color: selectTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: selectItemFontSize,
+                  textAlign: 'center',
+                }}
+              >
+                Selecciona tu posicion
+              </Text>
+            </Pressable>
+            {positionOptions.map((position) => (
+              <Pressable
+                key={position}
+                onPress={() => {
+                  setForm((prev) => ({ ...prev, position }));
+                  setShowPositionPicker(false);
+                }}
+                style={[styles.selectMenuItem, position === form.position && { backgroundColor: `${colors.primary}22` }]}
+              >
+                <Text
+                  style={{
+                    color: selectTextColor,
+                    fontFamily: typography.families.nougat,
+                    fontSize: selectItemFontSize,
+                    textAlign: 'center',
+                  }}
+                >
+                  {position}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showTeamPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTeamPicker(false)}
+      >
+        <Pressable
+          style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowTeamPicker(false)}
+        >
+          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable
+              onPress={() => {
+                setForm((prev) => ({ ...prev, team: '' }));
+                setShowTeamPicker(false);
+              }}
+              style={[styles.selectMenuItem, form.team === '' && { backgroundColor: `${colors.primary}22` }]}
+            >
+              <Text
+                style={{
+                  color: selectTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: selectItemFontSize,
+                  textAlign: 'center',
+                }}
+              >
+                Selecciona tu equipo
+              </Text>
+            </Pressable>
+            <View style={styles.selectMenuGrid}>
+              {teamOptions.map((team, index) => (
+                <Pressable
+                  key={team}
+                  onPress={() => {
+                    setForm((prev) => ({ ...prev, team }));
+                    setShowTeamPicker(false);
+                  }}
+                  style={[
+                    styles.selectMenuItem,
+                    styles.selectMenuItemHalf,
+                    index % 3 === 1 && { backgroundColor: teamColumnHighlight },
+                    team === form.team && { backgroundColor: `${colors.primary}22` },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: selectTextColor,
+                      fontFamily: typography.families.nougat,
+                      fontSize: selectTeamItemFontSize,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {team}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </ScreenGradient>
   );
 }
@@ -413,12 +558,41 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '600',
   },
-  pickerWrap: {
-    borderWidth: 1,
-    borderRadius: 14,
+  selectWrap: {
+    borderWidth: 0,
+    borderRadius: 18,
     marginBottom: 8,
     minHeight: 52,
     justifyContent: 'center',
+  },
+  selectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  selectOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 18,
+  },
+  selectMenu: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  selectMenuItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  selectMenuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  selectMenuItemHalf: {
+    width: '33.3333%',
   },
   error: {
     fontSize: 12,

@@ -8,6 +8,7 @@ import { useAppTheme } from '../hooks/useAppTheme';
 import { getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
+import FifaCard from '../components/FifaCard';
 
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
@@ -81,6 +82,8 @@ const FeedVideoItem = ({
       : [];
   const mediaType = video.mediaType || (isLikelyVideoUrl(video.url) ? 'video' : 'image');
   const isVideo = mediaType === 'video';
+  const uploaderCard = video?.uploaderCard || null;
+  const uploaderName = uploaderCard?.username || (video.id_usuario ? video.id_usuario.split('@')[0] : 'usuario');
 
   useEffect(() => {
     if (!isVideo) return;
@@ -154,8 +157,22 @@ const FeedVideoItem = ({
       />
       
       <View style={[styles.infoWrapper, { bottom: spacing.md }]}>
+        {uploaderCard ? (
+          <View style={styles.uploaderCardWrap}>
+            <FifaCard
+              username={uploaderCard.username || uploaderName}
+              position={uploaderCard.position}
+              team={uploaderCard.teamName}
+              backgroundUrl={uploaderCard.teamImageUrl}
+              frameUrl={uploaderCard.frameImageId}
+              photoUrl={uploaderCard.profileImageUrl}
+              size="small"
+              disableShadow
+            />
+          </View>
+        ) : null}
         <Text style={[styles.title, { fontSize: typography.sizes.lg * textScale, color: colors.white, fontWeight: 'bold' }]}>
-          @{video.id_usuario ? video.id_usuario.split('@')[0] : 'usuario'}
+          @{uploaderName}
         </Text>
         <Text style={[styles.description, { fontSize: typography.sizes.md * textScale, color: colors.white }]}>
           {video.title}
@@ -246,7 +263,7 @@ export default function HomeScreen({ navigation }) {
     ? colors.primary
     : darkMode
       ? colors.white
-      : '#1E40AF';
+      : colors.primary;
   const categoryLabel = selectedCategory || 'Últimos videos';
 
   const normalizedSelectedCategory = String(selectedCategory || '').trim().toLowerCase();
@@ -832,7 +849,7 @@ export default function HomeScreen({ navigation }) {
           style={[
             styles.categorySelectWrap,
             {
-              backgroundColor: colors.surface,
+              backgroundColor: `${colors.surface}99`,
               borderColor: colors.border,
             },
           ]}
@@ -1122,12 +1139,21 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  categoryBar: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
+  categoryBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
   categoryRow: { gap: 8, paddingRight: 12 },
   categoryChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
   carouselDotsBar: { paddingTop: 2, paddingBottom: 8, alignItems: 'center' },
   carouselDotsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  categorySelectWrap: { borderWidth: 0, borderRadius: 0, minHeight: 52, justifyContent: 'center', backgroundColor: 'transparent' },
+  categorySelectWrap: { borderWidth: 0, borderRadius: 18, minHeight: 52, justifyContent: 'center', backgroundColor: 'transparent' },
   categorySelectButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8 },
   categoryOverlay: { flex: 1, justifyContent: 'center', padding: 18 },
   categoryMenu: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
@@ -1145,6 +1171,7 @@ const styles = StyleSheet.create({
   title: { marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
   description: { fontWeight: '500', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
   descriptionText: { textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
+  uploaderCardWrap: { marginBottom: 6 },
   categoryBadge: { marginTop: 8, alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   categoryText: { textTransform: 'uppercase' },
   sideActions: { position: 'absolute', right: 16, alignItems: 'center', gap: 20, zIndex: 10 },

@@ -104,6 +104,7 @@ export function AuthProvider({ children }) {
       teamId,
       teamName: data.team,
       frameId: data.frameId || 'bronce',
+      profileImageUrl: data.profileImageUrl,
     });
 
     const normalizedUser = {
@@ -169,6 +170,10 @@ export function AuthProvider({ children }) {
 
       if (data.position && data.position !== user.position) {
         payload.position = data.position;
+      }
+
+      if (data.profileImageUrl) {
+        payload.profileImageUrl = data.profileImageUrl;
       }
 
       if (Object.keys(payload).length > 0) {

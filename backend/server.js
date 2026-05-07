@@ -10,7 +10,8 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // --- Cloudinary Config ---
 cloudinary.config({
@@ -129,16 +130,52 @@ app.get('/api/videos', async (req, res) => {
                 },
             },
             { $addFields: { commentsCount: { $size: '$comments' } } },
-            { $project: { comments: 0, videoIdStr: 0 } },
+            { $addFields: { uploaderKey: { $toLower: { $ifNull: ['$id_usuario', ''] } } } },
+            {
+                $lookup: {
+                    from: 'perfiles',
+                    let: { uploaderKey: '$uploaderKey' },
+                    pipeline: [
+                        { $addFields: { emailKey: { $toLower: '$email' } } },
+                        { $match: { $expr: { $eq: ['$emailKey', '$$uploaderKey'] } } },
+                        { $project: { password: 0, emailKey: 0 } },
+                    ],
+                    as: 'uploader',
+                },
+            },
+            { $addFields: { uploader: { $first: '$uploader' } } },
+            { $project: { comments: 0, videoIdStr: 0, uploaderKey: 0 } },
         );
 
         const videos = await db.collection('videos').aggregate(pipeline).toArray();
 
-        res.json(videos.map(v => ({
-            ...v,
-            id: v._id.toString(),
-            _id: undefined
-        })));
+        const enriched = await Promise.all(videos.map(async (video) => {
+            let uploaderCard = null;
+
+            if (video?.uploader) {
+                const cardData = await resolveCardData(video.uploader.teamId, video.uploader.frameId);
+                uploaderCard = {
+                    username: video.uploader.username,
+                    position: video.uploader.position,
+                    teamName: cardData.teamName,
+                    teamImageUrl: cardData.teamImageUrl,
+                    frameImageId: cardData.frameImageId,
+                    profileImageUrl: video.uploader.profileImageUrl ?? null,
+                };
+            }
+
+            const sanitized = { ...video };
+            delete sanitized.uploader;
+
+            return {
+                ...sanitized,
+                uploaderCard,
+                id: video._id.toString(),
+                _id: undefined,
+            };
+        }));
+
+        res.json(enriched);
     } catch (error) {
         console.error('Error al obtener videos:', error);
         res.status(500).json({ error: 'Error interno del servidor', details: error.message });
@@ -196,6 +233,36 @@ app.get('/api/categorias', async (req, res) => {
         return res.json({ categories });
     } catch (error) {
         console.error('Error al obtener categorias:', error);
+        return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/posiciones', async (req, res) => {
+    try {
+        const rows = await db.collection('posiciones').find({}, { projection: { _id: 0 } }).toArray();
+        const positionsMap = new Map();
+
+        rows.forEach((row) => {
+            const candidate = typeof row === 'string'
+                ? row
+                : row?.name ?? row?.nombre ?? row?.title ?? row?.titulo ?? row?.position ?? row?.posicion ?? row?.label;
+
+            const trimmed = String(candidate ?? '').trim();
+            if (!trimmed) return;
+
+            const key = trimmed.toLowerCase();
+            if (!positionsMap.has(key)) {
+                positionsMap.set(key, trimmed);
+            }
+        });
+
+        const posiciones = Array.from(positionsMap.values()).sort((a, b) =>
+            a.localeCompare(b, 'es', { sensitivity: 'base' })
+        );
+
+        return res.json({ posiciones });
+    } catch (error) {
+        console.error('Error al obtener posiciones:', error);
         return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }
 });
@@ -621,6 +688,19 @@ function normalizeImageUrl(value) {
     return raw;
 }
 
+async function uploadProfileImageUrl(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+
+    const result = await cloudinary.uploader.upload(raw, {
+        resource_type: 'image',
+        folder: 'sotanitapp_profiles',
+    });
+
+    return result.secure_url || null;
+}
+
 async function resolveCardData(teamId, frameId) {
     const [teamDoc, frameDoc] = await Promise.all([
         teamId ? db.collection('fondo').findOne(buildIdFilter(teamId)) : Promise.resolve(null),
@@ -750,6 +830,9 @@ async function handleCreateUser(req, res) {
         const resolvedFrameId = extractDocId(frameDoc);
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        const resolvedProfileImageUrl = profileImageUrl
+            ? await uploadProfileImageUrl(profileImageUrl)
+            : null;
 
         const userDoc = {
             username: normalizedUsername,
@@ -758,7 +841,7 @@ async function handleCreateUser(req, res) {
             position: position.trim(),
             teamId,
             frameId: resolvedFrameId,
-            profileImageUrl: profileImageUrl ? String(profileImageUrl).trim() : null,
+            profileImageUrl: resolvedProfileImageUrl,
             createdAt: new Date(),
         };
 
@@ -853,7 +936,7 @@ async function handleUpdateUser(req, res) {
         }
 
         if (profileImageUrl) {
-            updateData.profileImageUrl = String(profileImageUrl).trim();
+            updateData.profileImageUrl = await uploadProfileImageUrl(profileImageUrl);
         }
 
         if (!Object.keys(updateData).length) {

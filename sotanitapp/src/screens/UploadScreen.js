@@ -27,10 +27,12 @@ export default function UploadScreen({ navigation }) {
 
   useResetScrollOnFocus(scrollRef);
 
-  const categoryFontSize = 18 * textScale;
+  const categoryFontSize = 26 * textScale;
+  const categoryItemFontSize = 22 * textScale;
   const categoryTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
   const categoryLabel = category || 'Selecciona una categoría';
   const categoryLabelColor = categoryTextColor;
+  const categorySelectBackground = `${colors.surface}99`;
 
   useEffect(() => {
     let mounted = true;
@@ -275,12 +277,21 @@ export default function UploadScreen({ navigation }) {
         />
 
         <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginBottom: spacing.xs }}>Categoría</Text>
-        <View style={[styles.categorySelectWrap, { backgroundColor: colors.surface }]}> 
+        <View style={[styles.categorySelectWrap, { backgroundColor: categorySelectBackground }]}> 
           <Pressable style={styles.categorySelectButton} onPress={() => setShowCategoryPicker(true)}>
-            <Text style={{ color: categoryLabelColor, fontSize: categoryFontSize, textAlign: 'center', flex: 1 }} numberOfLines={1}>
+            <Text
+              style={{
+                color: categoryLabelColor,
+                fontFamily: typography.families.nougat,
+                fontSize: categoryFontSize,
+                textAlign: 'center',
+                flex: 1,
+              }}
+              numberOfLines={1}
+            >
               {categoryLabel}
             </Text>
-            <Ionicons name="chevron-down" size={20} color={colors.text} />
+            <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
           </Pressable>
         </View>
 
@@ -323,7 +334,14 @@ export default function UploadScreen({ navigation }) {
               }}
               style={[styles.categoryMenuItem, category === '' && { backgroundColor: `${colors.primary}15` }]}
             >
-              <Text style={{ color: categoryTextColor, fontSize: categoryFontSize, textAlign: 'center' }}>
+              <Text
+                style={{
+                  color: categoryTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: categoryItemFontSize,
+                  textAlign: 'center',
+                }}
+              >
                 Selecciona una categoría
               </Text>
             </Pressable>
@@ -336,7 +354,14 @@ export default function UploadScreen({ navigation }) {
                 }}
                 style={[styles.categoryMenuItem, item === category && { backgroundColor: `${colors.primary}15` }]}
               >
-                <Text style={{ color: categoryTextColor, fontSize: categoryFontSize, textAlign: 'center' }}>
+                <Text
+                  style={{
+                    color: categoryTextColor,
+                    fontFamily: typography.families.nougat,
+                    fontSize: categoryItemFontSize,
+                    textAlign: 'center',
+                  }}
+                >
                   {item}
                 </Text>
               </Pressable>
@@ -390,7 +415,7 @@ const styles = StyleSheet.create({
   },
   categorySelectWrap: {
     borderWidth: 0,
-    borderRadius: 0,
+    borderRadius: 18,
     minHeight: 52,
     justifyContent: 'center',
     marginBottom: 12,
