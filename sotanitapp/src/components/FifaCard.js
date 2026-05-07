@@ -63,7 +63,7 @@ export default function FifaCard({
   style,
   onPress,
 }) {
-  const { colors } = useAppTheme();
+  const { colors, typography } = useAppTheme();
   const current = getCardMetrics(size);
   const [backgroundLoadFailed, setBackgroundLoadFailed] = useState(false);
   const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
@@ -108,7 +108,18 @@ export default function FifaCard({
 
       <View style={[styles.contentLayer, { paddingTop: current.topPad }]}> 
         <View style={[styles.footer, { paddingBottom: current.footerBottom }]}> 
-          <Text numberOfLines={1} style={[styles.username, { fontSize: current.title, color: colors.black, marginBottom: current.marginBottom }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.username,
+              {
+                fontSize: current.title,
+                color: colors.black,
+                fontFamily: typography.families.nougat,
+                marginBottom: current.marginBottom,
+              },
+            ]}
+          >
             {username}
           </Text>
           <Text numberOfLines={1} style={[styles.position, { fontSize: current.position, color: colors.black }]}>
@@ -181,7 +192,6 @@ const styles = StyleSheet.create({
   username: {
     textAlign: 'center',
     fontWeight: '800',
-    fontFamily: 'WorldCup26',
     transform: [{ skewY: -12 }],
   },
   position: {

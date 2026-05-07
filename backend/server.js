@@ -107,8 +107,15 @@ app.get('/api/videos', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 10;
         const offset = parseInt(req.query.offset) || 0;
+        const categoryRaw = String(req.query.category || '').trim();
 
-        const videos = await db.collection('videos').aggregate([
+        const pipeline = [];
+
+        if (categoryRaw) {
+            pipeline.push({ $match: { category: buildNameRegex(categoryRaw) } });
+        }
+
+        pipeline.push(
             { $sort: { createdAt: -1 } },
             { $skip: offset },
             { $limit: limit },
@@ -123,7 +130,9 @@ app.get('/api/videos', async (req, res) => {
             },
             { $addFields: { commentsCount: { $size: '$comments' } } },
             { $project: { comments: 0, videoIdStr: 0 } },
-        ]).toArray();
+        );
+
+        const videos = await db.collection('videos').aggregate(pipeline).toArray();
 
         res.json(videos.map(v => ({
             ...v,
@@ -133,6 +142,61 @@ app.get('/api/videos', async (req, res) => {
     } catch (error) {
         console.error('Error al obtener videos:', error);
         res.status(500).json({ error: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/videos/categories', async (req, res) => {
+    try {
+        const rawCategories = await db.collection('videos').distinct('category');
+        const categoriesMap = new Map();
+
+        rawCategories.forEach((value) => {
+            const trimmed = String(value ?? '').trim();
+            if (!trimmed) return;
+            const key = trimmed.toLowerCase();
+            if (!categoriesMap.has(key)) {
+                categoriesMap.set(key, trimmed);
+            }
+        });
+
+        const categories = Array.from(categoriesMap.values()).sort((a, b) =>
+            a.localeCompare(b, 'es', { sensitivity: 'base' })
+        );
+
+        return res.json({ categories });
+    } catch (error) {
+        console.error('Error al obtener categorias de videos:', error);
+        return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/categorias', async (req, res) => {
+    try {
+        const rows = await db.collection('categorias').find({}, { projection: { _id: 0 } }).toArray();
+        const categoriesMap = new Map();
+
+        rows.forEach((row) => {
+            const candidate = typeof row === 'string'
+                ? row
+                : row?.name ?? row?.nombre ?? row?.title ?? row?.titulo ?? row?.category ?? row?.categoria ?? row?.label;
+
+            const trimmed = String(candidate ?? '').trim();
+            if (!trimmed) return;
+
+            const key = trimmed.toLowerCase();
+            if (!categoriesMap.has(key)) {
+                categoriesMap.set(key, trimmed);
+            }
+        });
+
+        const categories = Array.from(categoriesMap.values()).sort((a, b) =>
+            a.localeCompare(b, 'es', { sensitivity: 'base' })
+        );
+
+        return res.json({ categories });
+    } catch (error) {
+        console.error('Error al obtener categorias:', error);
+        return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }
 });
 

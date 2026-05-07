@@ -31,7 +31,7 @@ export default function RankingScreen() {
         </View>
 
         <View style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.xxl * textScale, fontFamily: typography.families.worldCup }}>
+          <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.xxl * textScale, fontFamily: typography.families.nougat }}>
             Ranking Semanal
           </Text>
           <Text style={{ color: colors.textMuted, marginTop: spacing.xs }}>Top 3 de la semana</Text>

@@ -1,6 +1,6 @@
 const typography = {
   families: {
-    worldCup: 'WorldCup26',
+    nougat: 'Nougat',
   },
   sizes: {
     xs: 12,
