@@ -165,7 +165,8 @@ export async function uploadCommentAudio(formData) {
 }
 
 export async function deleteVideoComment(commentId, idUsuario) {
-  const response = await fetch(buildApiUrl(`/api/comments/${commentId}`), {
+  const encodedUser = encodeURIComponent(idUsuario || '');
+  const response = await fetch(buildApiUrl(`/api/comments/${commentId}?id_usuario=${encodedUser}`), {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',

@@ -213,7 +213,7 @@ app.post('/api/videos/:id/comments', async (req, res) => {
 app.delete('/api/comments/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const userIdRaw = String(req.body?.id_usuario || '').trim().toLowerCase();
+        const userIdRaw = String(req.body?.id_usuario || req.query?.id_usuario || '').trim().toLowerCase();
 
         if (!ObjectId.isValid(id)) {
             return res.status(400).json({ message: 'id de comentario invalido' });
