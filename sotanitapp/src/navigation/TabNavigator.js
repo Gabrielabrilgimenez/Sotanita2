@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, Easing, FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -14,8 +14,6 @@ import NotificationItem from '../components/NotificationItem';
 import FifaCard from '../components/FifaCard';
 
 const Tab = createBottomTabNavigator();
-const tabCardBackground = require('../../assets/fondo.png');
-const tabCardFrame = require('../../assets/marco.png');
 const closeButtonDark = require('../../assets/botonX/dark.png');
 const closeButtonLight = require('../../assets/botonX/light.png');
 const closeButtonContrast = require('../../assets/botonX/contrast.png');
@@ -44,14 +42,6 @@ function formatRelativeTime(value) {
   return `${diffDays}d`;
 }
 
-function buildTabCardSource(value, fallback) {
-  const raw = String(value ?? '').trim();
-  if (!raw) return fallback;
-  if (raw.startsWith('//')) return { uri: `https:${raw}` };
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('file:')) return { uri: raw };
-  return fallback;
-}
-
 export default function TabNavigator({ navigation }) {
   const { user, isLoggedIn } = useAuth();
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
@@ -78,16 +68,6 @@ export default function TabNavigator({ navigation }) {
     teamImageUrl: isLoggedIn ? user?.teamImageUrl : null,
     frameImageId: isLoggedIn ? user?.frameImageId : null,
   };
-
-  const profileTabBackgroundSource = useMemo(
-    () => buildTabCardSource(user?.teamImageUrl, tabCardBackground),
-    [user?.teamImageUrl]
-  );
-
-  const profileTabFrameSource = useMemo(
-    () => buildTabCardSource(user?.frameImageId, tabCardFrame),
-    [user?.frameImageId]
-  );
 
   const startAnimationFromProfileTab = (navigation) => {
     if (isProfileAnimating) {
@@ -284,8 +264,17 @@ export default function TabNavigator({ navigation }) {
                     { opacity: focused ? 1 : 0.78 },
                   ]}
                 >
-                  <Image source={profileTabBackgroundSource} style={styles.profileCardAsset} resizeMode="stretch" />
-                  <Image source={profileTabFrameSource} style={styles.profileCardAsset} resizeMode="stretch" />
+                  <FifaCard
+                    size="small"
+                    username={profilePreview.username}
+                    team={profilePreview.team}
+                    position={profilePreview.position}
+                    rating={profilePreview.rating}
+                    photoUrl={profilePreview.profileImageUrl}
+                    backgroundUrl={profilePreview.teamImageUrl}
+                    frameUrl={profilePreview.frameImageId}
+                    disableShadow
+                  />
                 </View>
               );
             }

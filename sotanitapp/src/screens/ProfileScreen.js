@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,6 +14,29 @@ import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import VideoTile from '../components/VideoTile';
 import { positions } from '../utils/mockData';
+
+const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+
+  if (typeof globalThis.btoa === 'function') {
+    return globalThis.btoa(binary);
+  }
+
+  if (typeof globalThis.Buffer !== 'undefined') {
+    return globalThis.Buffer.from(binary, 'binary').toString('base64');
+  }
+
+  throw new Error('No se pudo convertir la imagen a base64');
+}
 
 export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const { user, isLoggedIn, guestMode, logout, updateUser } = useAuth();
@@ -29,6 +53,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [editError, setEditError] = useState('');
   const [uploadedVideos, setUploadedVideos] = useState([]);
   const [likedVideos, setLikedVideos] = useState([]);
+  const [photoLoading, setPhotoLoading] = useState(false);
   const scrollRef = useRef(null);
 
   useResetScrollOnFocus(scrollRef);
@@ -61,6 +86,105 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
         setLoadingTeams(false);
       }
     }
+  };
+
+  const pickAndProcessPhoto = async () => {
+    if (!REMOVE_BG_API_KEY) {
+      throw new Error('Falta configurar EXPO_PUBLIC_REMOVE_BG_API_KEY');
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      throw new Error('Permiso de galeria denegado');
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 1,
+    });
+
+    if (result.canceled) {
+      return null;
+    }
+
+    const asset = result.assets?.[0];
+    if (!asset?.uri) {
+      throw new Error('No se pudo leer la imagen seleccionada');
+    }
+
+    const formData = new FormData();
+    formData.append('size', 'auto');
+    formData.append('format', 'png');
+
+    const fileName = asset.fileName || `upload-${Date.now()}.jpg`;
+    const fileType = asset.mimeType || 'image/jpeg';
+
+    if (Platform.OS === 'web') {
+      const fileResponse = await fetch(asset.uri);
+      const imageBlob = await fileResponse.blob();
+      formData.append('image_file', imageBlob, fileName);
+    } else {
+      formData.append('image_file', {
+        uri: asset.uri,
+        name: fileName,
+        type: fileType,
+      });
+    }
+
+    const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+      method: 'POST',
+      headers: {
+        'X-Api-Key': REMOVE_BG_API_KEY,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`remove.bg error ${response.status}: ${errorBody}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = arrayBufferToBase64(arrayBuffer);
+
+    return {
+      uri: `data:image/png;base64,${base64Data}`,
+      dataUrl: `data:image/png;base64,${base64Data}`,
+    };
+  };
+
+  const handleChangePhoto = async () => {
+    setPhotoLoading(true);
+    try {
+      const processed = await pickAndProcessPhoto();
+      if (!processed) {
+        return;
+      }
+      await updateUser({ profileImageUrl: processed.dataUrl });
+      Alert.alert('Éxito', 'Foto de perfil actualizada');
+    } catch (error) {
+      const message = error.message || 'No se pudo cambiar la foto';
+      Alert.alert('Error', message);
+      console.error('Error cambiando foto:', error);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const handleCardPress = () => {
+    if (!isLoggedIn) {
+      return;
+    }
+
+    Alert.alert(
+      '¿Cambiar foto de perfil?',
+      'Toca "Cambiar" para seleccionar una nueva foto',
+      [
+        { text: 'Cancelar', onPress: () => {}, style: 'cancel' },
+        { text: 'Cambiar', onPress: handleChangePhoto },
+      ]
+    );
   };
 
   const saveEdit = async () => {
@@ -159,6 +283,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               frameUrl={profile.frameImageId}
               size="xlarge"
               disableShadow
+              onPress={handleCardPress}
             />
           ) : null}
         </View>
