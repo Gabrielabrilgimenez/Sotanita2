@@ -24,7 +24,7 @@ function RootNavigator() {
 
 export default function App() {
   const [fontsLoaded] = useFonts({
-    WorldCup26: require('./assets/WorldCup26-Regular.ttf'),
+    Nougat: require('./assets/Nougat-ExtraBlack.ttf'),
   });
 
   if (!fontsLoaded) {

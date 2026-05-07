@@ -16,7 +16,7 @@ import { positions } from '../utils/mockData';
 
 export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const { user, isLoggedIn, guestMode, logout, updateUser } = useAuth();
-  const { colors, spacing, typography, textScale } = useAppTheme();
+  const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
 
   const [activeTab, setActiveTab] = useState('uploaded');
   const [editingField, setEditingField] = useState(null);
@@ -30,6 +30,9 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [uploadedVideos, setUploadedVideos] = useState([]);
   const [likedVideos, setLikedVideos] = useState([]);
   const scrollRef = useRef(null);
+
+  const selectFontSize = 18 * textScale;
+  const selectTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
 
   useResetScrollOnFocus(scrollRef);
 
@@ -263,16 +266,16 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                 >
                   <Picker
                     selectedValue={tempValue}
-                    style={{ color: colors.text, backgroundColor: 'transparent' }}
-                    itemStyle={{ color: colors.text }}
-                    dropdownIconColor={colors.text}
+                    style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
+                    itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
+                    dropdownIconColor={selectTextColor}
                     onFocus={() => setFocusedPicker(true)}
                     onBlur={() => setFocusedPicker(false)}
                     onValueChange={setTempValue}
                   >
-                    <Picker.Item label="Selecciona un equipo" value="" color={colors.textMuted} />
+                    <Picker.Item label="Selecciona un equipo" value="" color={selectTextColor} />
                     {teamOptions.map((team) => (
-                      <Picker.Item key={team} label={team} value={team} color="#111827" />
+                      <Picker.Item key={team} label={team} value={team} color={selectTextColor} />
                     ))}
                   </Picker>
                 </View>
@@ -290,15 +293,15 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               >
                 <Picker
                   selectedValue={tempValue}
-                  style={{ color: colors.text, backgroundColor: 'transparent' }}
-                  itemStyle={{ color: colors.text }}
-                  dropdownIconColor={colors.text}
+                  style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
+                  itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
+                  dropdownIconColor={selectTextColor}
                   onFocus={() => setFocusedPicker(true)}
                   onBlur={() => setFocusedPicker(false)}
                   onValueChange={setTempValue}
                 >
                   {positions.map((item) => (
-                    <Picker.Item key={item} label={item} value={item} color="#111827" />
+                    <Picker.Item key={item} label={item} value={item} color={selectTextColor} />
                   ))}
                 </Picker>
               </View>

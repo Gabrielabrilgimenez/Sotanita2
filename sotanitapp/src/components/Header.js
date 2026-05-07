@@ -32,7 +32,7 @@ export default function Header({
             color: colors.text,
             fontWeight: typography.weights.bold,
             fontSize: resolvedTitleSize * titleScale * textScale,
-            fontFamily: typography.families.worldCup,
+            fontFamily: typography.families.nougat,
           },
           titleStyle,
         ]}

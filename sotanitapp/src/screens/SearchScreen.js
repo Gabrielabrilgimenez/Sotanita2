@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useAppTheme } from '../hooks/useAppTheme';
@@ -7,18 +7,59 @@ import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
 import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
-import { categories } from '../utils/mockData';
+import { getCategories } from '../api/backend';
 
 export default function SearchScreen({ navigation }) {
-  const { colors, spacing, typography, textScale } = useAppTheme();
+  const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
 
   const [username, setUsername] = useState('');
   const [category, setCategory] = useState('Todos');
+  const [categories, setCategories] = useState([]);
   const [sortBy, setSortBy] = useState('Mas recientes');
   const [focusedPicker, setFocusedPicker] = useState(null);
   const scrollRef = useRef(null);
 
   useResetScrollOnFocus(scrollRef);
+
+  const selectFontSize = 12 * textScale;
+  const selectTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCategories = async () => {
+      try {
+        const data = await getCategories();
+        if (mounted) {
+          setCategories(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (mounted) {
+          setCategories([]);
+        }
+      }
+    };
+
+    loadCategories();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const categoryOptions = useMemo(() => {
+    const normalized = new Map();
+    categories.forEach((item) => {
+      const trimmed = String(item ?? '').trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!normalized.has(key)) {
+        normalized.set(key, trimmed);
+      }
+    });
+
+    return ['Todos', ...Array.from(normalized.values())];
+  }, [categories]);
 
   return (
     <ScreenGradient>
@@ -49,15 +90,15 @@ export default function SearchScreen({ navigation }) {
           >
             <Picker
               selectedValue={category}
-              style={{ color: colors.text, backgroundColor: 'transparent' }}
-              itemStyle={{ color: colors.text }}
-              dropdownIconColor={colors.text}
+              style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
+              itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
+              dropdownIconColor={selectTextColor}
               onFocus={() => setFocusedPicker('category')}
               onBlur={() => setFocusedPicker(null)}
               onValueChange={setCategory}
             >
-              {categories.map((item) => (
-                <Picker.Item key={item} label={item} value={item} color="#111827" />
+                {categoryOptions.map((item) => (
+                <Picker.Item key={item} label={item} value={item} color={selectTextColor} />
               ))}
             </Picker>
           </View>
@@ -74,16 +115,16 @@ export default function SearchScreen({ navigation }) {
           >
             <Picker
               selectedValue={sortBy}
-              style={{ color: colors.text, backgroundColor: 'transparent' }}
-              itemStyle={{ color: colors.text }}
-              dropdownIconColor={colors.text}
+              style={{ color: selectTextColor, backgroundColor: 'transparent', fontSize: selectFontSize }}
+              itemStyle={{ color: selectTextColor, fontSize: selectFontSize }}
+              dropdownIconColor={selectTextColor}
               onFocus={() => setFocusedPicker('sort')}
               onBlur={() => setFocusedPicker(null)}
               onValueChange={setSortBy}
             >
-              <Picker.Item label="Mas recientes" value="Mas recientes" color="#111827" />
-              <Picker.Item label="Mas gustados" value="Mas gustados" color="#111827" />
-              <Picker.Item label="Mas comentados" value="Mas comentados" color="#111827" />
+              <Picker.Item label="Mas recientes" value="Mas recientes" color={selectTextColor} />
+              <Picker.Item label="Mas gustados" value="Mas gustados" color={selectTextColor} />
+              <Picker.Item label="Mas comentados" value="Mas comentados" color={selectTextColor} />
             </Picker>
           </View>
 

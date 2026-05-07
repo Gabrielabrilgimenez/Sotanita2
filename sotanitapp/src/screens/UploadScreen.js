@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, Alert, ActivityIndicator, Platform } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, Alert, ActivityIndicator, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../hooks/useAppTheme';
@@ -9,25 +8,52 @@ import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
-import { uploadVideo } from '../api/backend';
+import { getCategories, uploadVideo } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 
-const uploadCategories = ['Goles', 'Regates', 'Asistencias', 'Paradas', 'Faltas', 'Jugadas', 'Entrenamientos'];
-
 export default function UploadScreen({ navigation }) {
-  const { colors, spacing, typography, textScale } = useAppTheme();
+  const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
   const { user } = useAuth();
 
   const [mediaFiles, setMediaFiles] = useState([]);
   const [mediaType, setMediaType] = useState(null);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
+  const [categories, setCategories] = useState([]);
   const [description, setDescription] = useState('');
-  const [focusedPicker, setFocusedPicker] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
 
   useResetScrollOnFocus(scrollRef);
+
+  const categoryFontSize = 18 * textScale;
+  const categoryTextColor = highContrast ? colors.primary : darkMode ? colors.white : colors.text;
+  const categoryLabel = category || 'Selecciona una categoría';
+  const categoryLabelColor = categoryTextColor;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCategories = async () => {
+      try {
+        const data = await getCategories();
+        if (mounted) {
+          setCategories(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (mounted) {
+          setCategories([]);
+        }
+      }
+    };
+
+    loadCategories();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const isMobileVideoRatio = (width, height) => {
     if (!width || !height) return false;
@@ -249,21 +275,13 @@ export default function UploadScreen({ navigation }) {
         />
 
         <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginBottom: spacing.xs }}>Categoría</Text>
-        <View style={[styles.pickerWrap, { backgroundColor: colors.surface, borderColor: focusedPicker ? colors.primary : colors.border }]}> 
-          <Picker
-            selectedValue={category}
-            style={{ color: colors.text, backgroundColor: 'transparent' }}
-            itemStyle={{ color: colors.text }}
-            dropdownIconColor={colors.text}
-            onFocus={() => setFocusedPicker(true)}
-            onBlur={() => setFocusedPicker(false)}
-            onValueChange={setCategory}
-          >
-            <Picker.Item label="Selecciona una categoría" value="" color={colors.textMuted} />
-            {uploadCategories.map((item) => (
-              <Picker.Item key={item} label={item} value={item} color="#111827" />
-            ))}
-          </Picker>
+        <View style={[styles.categorySelectWrap, { backgroundColor: colors.surface }]}> 
+          <Pressable style={styles.categorySelectButton} onPress={() => setShowCategoryPicker(true)}>
+            <Text style={{ color: categoryLabelColor, fontSize: categoryFontSize, textAlign: 'center', flex: 1 }} numberOfLines={1}>
+              {categoryLabel}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={colors.text} />
+          </Pressable>
         </View>
 
         <AppInput
@@ -286,6 +304,46 @@ export default function UploadScreen({ navigation }) {
           />
         )}
       </ScrollView>
+
+      <Modal
+        visible={showCategoryPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCategoryPicker(false)}
+      >
+        <Pressable
+          style={[styles.categoryOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowCategoryPicker(false)}
+        >
+          <View style={[styles.categoryMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable
+              onPress={() => {
+                setCategory('');
+                setShowCategoryPicker(false);
+              }}
+              style={[styles.categoryMenuItem, category === '' && { backgroundColor: `${colors.primary}15` }]}
+            >
+              <Text style={{ color: categoryTextColor, fontSize: categoryFontSize, textAlign: 'center' }}>
+                Selecciona una categoría
+              </Text>
+            </Pressable>
+            {categories.map((item) => (
+              <Pressable
+                key={item}
+                onPress={() => {
+                  setCategory(item);
+                  setShowCategoryPicker(false);
+                }}
+                style={[styles.categoryMenuItem, item === category && { backgroundColor: `${colors.primary}15` }]}
+              >
+                <Text style={{ color: categoryTextColor, fontSize: categoryFontSize, textAlign: 'center' }}>
+                  {item}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </ScreenGradient>
   );
 }
@@ -330,11 +388,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  pickerWrap: {
-    borderWidth: 1,
-    borderRadius: 14,
-    marginBottom: 12,
+  categorySelectWrap: {
+    borderWidth: 0,
+    borderRadius: 0,
     minHeight: 52,
     justifyContent: 'center',
+    marginBottom: 12,
+  },
+  categorySelectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  categoryOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 18,
+  },
+  categoryMenu: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  categoryMenuItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
 });

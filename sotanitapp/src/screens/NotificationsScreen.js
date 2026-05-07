@@ -71,7 +71,7 @@ export default function NotificationsScreen({ navigation }) {
   return (
     <ScreenGradient>
       <View style={[styles.header, { borderBottomColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }]}>
-        <Text style={{ color: colors.text, fontSize: typography.sizes.xl * textScale, fontWeight: typography.weights.bold, fontFamily: typography.families.worldCup }}>
+        <Text style={{ color: colors.text, fontSize: typography.sizes.xl * textScale, fontWeight: typography.weights.bold, fontFamily: typography.families.nougat }}>
           Notificaciones
         </Text>
       </View>

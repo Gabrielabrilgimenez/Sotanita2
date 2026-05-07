@@ -25,7 +25,7 @@ export default function WelcomeScreen({ navigation }) {
               color: colors.text,
               fontSize: typography.sizes.hero * 1.3 * textScale,
               fontWeight: typography.weights.bold,
-              fontFamily: typography.families.worldCup,
+              fontFamily: typography.families.nougat,
               textAlign: 'center',
               transform: [{ scaleY: 1.12 }],
               letterSpacing: -0.8,

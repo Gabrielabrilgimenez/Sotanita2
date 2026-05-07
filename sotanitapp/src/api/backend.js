@@ -82,9 +82,29 @@ export async function uploadVideo(formData) {
   return parseResponse(response);
 }
 
-export async function getVideos(limit = 10, offset = 0) {
-  const response = await fetch(buildApiUrl(`/api/videos?limit=${limit}&offset=${offset}`));
+export async function getVideos(limit = 10, offset = 0, category) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const normalizedCategory = String(category ?? '').trim();
+  if (normalizedCategory) {
+    params.set('category', normalizedCategory);
+  }
+
+  const response = await fetch(buildApiUrl(`/api/videos?${params.toString()}`));
   return parseResponse(response);
+}
+
+export async function getCategories() {
+  const response = await fetch(buildApiUrl('/api/categorias'));
+  const data = await parseResponse(response);
+  return data.categories || [];
+}
+
+export async function getVideoCategories() {
+  return getCategories();
 }
 
 export async function getAllVideos(limit = 20, maxPages = 50) {

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode, Audio } from 'expo-av';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getVideos, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment } from '../api/backend';
+import { getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 
@@ -191,18 +191,20 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
 };
 
 export default function HomeScreen({ navigation }) {
-  const { colors } = useAppTheme();
+  const { colors, typography, textScale, darkMode, highContrast } = useAppTheme();
   const isFocused = useIsFocused();
   const { user, isLoggedIn } = useAuth();
   
   const [videos, setVideos] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [likingVideoId, setLikingVideoId] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -228,19 +230,36 @@ export default function HomeScreen({ navigation }) {
   const loadingMoreRef = useRef(false);
   const activeIndexRef = useRef(0);
   const listRef = useRef(null);
+  const categoryItemFontSize = 22 * textScale;
+  const categorySelectedFontSize = 26 * textScale;
+  const categoryTextColor = highContrast
+    ? colors.primary
+    : darkMode
+      ? colors.white
+      : '#1E40AF';
+  const categoryLabel = selectedCategory || 'Últimos videos';
 
-  const videoCategories = ['Todos', 'Goles', 'Regates', 'Asistencias', 'Paradas', 'Faltas', 'Jugadas', 'Entrenamientos'];
+  const normalizedSelectedCategory = String(selectedCategory || '').trim().toLowerCase();
+  const visibleVideos = normalizedSelectedCategory
+    ? videos.filter((video) => String(video.category || '').trim().toLowerCase() === normalizedSelectedCategory)
+    : videos;
 
-  const visibleVideos = selectedCategory === 'Todos'
-    ? videos
-    : videos.filter((video) => String(video.category || '').trim().toLowerCase() === selectedCategory.toLowerCase());
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await getCategories();
+      setCategories(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      setCategories([]);
+    }
+  }, []);
 
   const refreshFeed = useCallback(async () => {
     setRefreshing(true);
 
     try {
       const limit = 5;
-      const data = await getVideos(limit, 0);
+      const data = await getVideos(limit, 0, selectedCategory);
       const currentUserId = String(user?.email || '').trim().toLowerCase();
       const normalizedData = data.map((video) => {
         const likedBy = Array.isArray(video.likedBy) ? video.likedBy.map((value) => String(value).toLowerCase()) : [];
@@ -269,7 +288,7 @@ export default function HomeScreen({ navigation }) {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [user?.email]);
+  }, [user?.email, selectedCategory]);
 
   const fetchMoreFeedVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -280,7 +299,7 @@ export default function HomeScreen({ navigation }) {
     try {
       const limit = 5;
       const currentOffset = offsetRef.current;
-      const data = await getVideos(limit, currentOffset);
+      const data = await getVideos(limit, currentOffset, selectedCategory);
       const currentUserId = String(user?.email || '').trim().toLowerCase();
       const normalizedData = data.map((video) => {
         const likedBy = Array.isArray(video.likedBy) ? video.likedBy.map((value) => String(value).toLowerCase()) : [];
@@ -305,7 +324,7 @@ export default function HomeScreen({ navigation }) {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [user?.email]);
+  }, [user?.email, selectedCategory]);
 
   const handleLike = useCallback(async (video) => {
     if (!isLoggedIn || !user?.email) {
@@ -481,9 +500,17 @@ export default function HomeScreen({ navigation }) {
   }, [activeAudioId]);
 
   useEffect(() => {
-    if (!listRef.current) return;
+    offsetRef.current = 0;
+    setOffset(0);
+    hasMoreRef.current = true;
+    setHasMore(true);
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     activeIndexRef.current = 0;
     setActiveIndex(0);
+    setVideos([]);
+    setLoading(true);
+    if (!listRef.current) return;
     listRef.current.scrollToOffset({ offset: 0, animated: false });
   }, [selectedCategory]);
 
@@ -721,8 +748,8 @@ export default function HomeScreen({ navigation }) {
   }, [selectedVideoId, isRecording, isUploadingAudio, user?.email, user?.username, mapComment]);
 
   useEffect(() => {
-    refreshFeed();
-  }, [refreshFeed]);
+    loadCategories();
+  }, [loadCategories]);
 
   useFocusEffect(
     useCallback(() => {
@@ -731,8 +758,9 @@ export default function HomeScreen({ navigation }) {
   );
 
   const onRefresh = useCallback(() => {
+    loadCategories();
     refreshFeed();
-  }, [refreshFeed]);
+  }, [loadCategories, refreshFeed]);
 
   const updateActiveIndexFromOffset = useCallback((offsetY) => {
     if (!containerHeight || visibleVideos.length === 0) return;
@@ -757,31 +785,92 @@ export default function HomeScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <View style={styles.categoryBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-          {videoCategories.map((category) => (
+        <View
+          style={[
+            styles.categorySelectWrap,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <Pressable style={styles.categorySelectButton} onPress={() => setShowCategoryPicker(true)}>
+            <Text
+              style={{
+                color: categoryTextColor,
+                fontFamily: typography.families.nougat,
+                fontSize: categorySelectedFontSize,
+                textAlign: 'center',
+                flex: 1,
+              }}
+              numberOfLines={1}
+            >
+              {categoryLabel}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
+          </Pressable>
+        </View>
+      </View>
+
+      <Modal
+        visible={showCategoryPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCategoryPicker(false)}
+      >
+        <Pressable
+          style={[styles.categoryOverlay, { backgroundColor: colors.overlay }]}
+          onPress={() => setShowCategoryPicker(false)}
+        >
+          <View style={[styles.categoryMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
             <Pressable
-              key={category}
-              onPress={() => setSelectedCategory(category)}
+              onPress={() => {
+                setSelectedCategory('');
+                setShowCategoryPicker(false);
+              }}
               style={[
-                styles.categoryChip,
-                {
-                  backgroundColor: selectedCategory === category ? colors.primary : colors.surface,
-                  borderColor: selectedCategory === category ? colors.primary : colors.border,
-                },
+                styles.categoryMenuItem,
+                selectedCategory === '' && { backgroundColor: `${colors.primary}22` },
               ]}
             >
               <Text
                 style={{
-                  color: selectedCategory === category ? colors.black : colors.text,
-                  fontWeight: '600',
+                  color: categoryTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: categoryItemFontSize,
+                  textAlign: 'center',
                 }}
               >
-                {category}
+                Últimos videos
               </Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+            {categories.map((category) => (
+              <Pressable
+                key={category}
+                onPress={() => {
+                  setSelectedCategory(category);
+                  setShowCategoryPicker(false);
+                }}
+                style={[
+                  styles.categoryMenuItem,
+                  category === selectedCategory && { backgroundColor: `${colors.primary}22` },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: categoryTextColor,
+                    fontFamily: typography.families.nougat,
+                    fontSize: categoryItemFontSize,
+                    textAlign: 'center',
+                  }}
+                >
+                  {category}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
       {loading && videos.length === 0 ? (
@@ -934,8 +1023,11 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   categoryBar: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
-  categoryRow: { gap: 8, paddingRight: 12 },
-  categoryChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
+  categorySelectWrap: { borderWidth: 0, borderRadius: 0, minHeight: 52, justifyContent: 'center', backgroundColor: 'transparent' },
+  categorySelectButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8 },
+  categoryOverlay: { flex: 1, justifyContent: 'center', padding: 18 },
+  categoryMenu: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  categoryMenuItem: { paddingVertical: 14, paddingHorizontal: 16 },
   listWrap: { flex: 1 },
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },
