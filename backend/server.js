@@ -210,6 +210,39 @@ app.post('/api/videos/:id/comments', async (req, res) => {
     }
 });
 
+app.delete('/api/comments/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userIdRaw = String(req.body?.id_usuario || '').trim().toLowerCase();
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'id de comentario invalido' });
+        }
+
+        if (!userIdRaw) {
+            return res.status(400).json({ message: 'id_usuario es obligatorio' });
+        }
+
+        const commentObjectId = new ObjectId(id);
+        const comment = await db.collection('comentarios').findOne({ _id: commentObjectId });
+
+        if (!comment) {
+            return res.status(404).json({ message: 'Comentario no encontrado' });
+        }
+
+        if (String(comment.userId || '').trim().toLowerCase() !== userIdRaw) {
+            return res.status(403).json({ message: 'No tienes permiso para eliminar este comentario' });
+        }
+
+        await db.collection('comentarios').deleteOne({ _id: commentObjectId });
+
+        return res.json({ success: true, id });
+    } catch (error) {
+        console.error('Error al eliminar comentario:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
 app.post('/api/uploads/audio', upload.single('file'), async (req, res) => {
     try {
         const file = req.file;
@@ -320,6 +353,46 @@ app.get('/api/notificaciones', async (req, res) => {
         );
     } catch (error) {
         console.error('Error al obtener notificaciones:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/notificaciones/unread-count', async (req, res) => {
+    try {
+        const userIdRaw = String(req.query?.id_usuario || '').trim().toLowerCase();
+
+        if (!userIdRaw) {
+            return res.status(400).json({ message: 'id_usuario es obligatorio' });
+        }
+
+        const count = await db.collection('notificaciones').countDocuments({
+            recipientUserId: userIdRaw,
+            read: { $ne: true },
+        });
+
+        return res.json({ unreadCount: count });
+    } catch (error) {
+        console.error('Error al contar notificaciones:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.post('/api/notificaciones/mark-read', async (req, res) => {
+    try {
+        const userIdRaw = String(req.body?.id_usuario || '').trim().toLowerCase();
+
+        if (!userIdRaw) {
+            return res.status(400).json({ message: 'id_usuario es obligatorio' });
+        }
+
+        const result = await db.collection('notificaciones').updateMany(
+            { recipientUserId: userIdRaw, read: { $ne: true } },
+            { $set: { read: true } }
+        );
+
+        return res.json({ updated: result.modifiedCount || 0 });
+    } catch (error) {
+        console.error('Error al marcar notificaciones como leidas:', error);
         return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
     }
 });

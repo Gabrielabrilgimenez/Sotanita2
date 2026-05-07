@@ -9,7 +9,7 @@ import NotificationsScreen from '../screens/NotificationsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllNotifications } from '../api/backend';
+import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead } from '../api/backend';
 import NotificationItem from '../components/NotificationItem';
 import FifaCard from '../components/FifaCard';
 
@@ -59,6 +59,7 @@ export default function TabNavigator({ navigation }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [modalNotifications, setModalNotifications] = useState([]);
   const [loadingModalNotifications, setLoadingModalNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [showProfileTransition, setShowProfileTransition] = useState(false);
   const [isProfileAnimating, setIsProfileAnimating] = useState(false);
   const profileTransition = useRef(new Animated.Value(0)).current;
@@ -214,6 +215,8 @@ export default function TabNavigator({ navigation }) {
         }));
 
         setModalNotifications(mapped);
+        await markNotificationsRead(currentUserEmail);
+        setUnreadCount(0);
       } catch (error) {
         console.error('Error cargando notificaciones del modal:', error);
         setModalNotifications([]);
@@ -224,6 +227,24 @@ export default function TabNavigator({ navigation }) {
 
     loadModalNotifications();
   }, [showNotifications, isLoggedIn, user?.email]);
+
+  useEffect(() => {
+    const loadUnreadCount = async () => {
+      if (!isLoggedIn || !user?.email) {
+        setUnreadCount(0);
+        return;
+      }
+
+      try {
+        const count = await getUnreadNotificationsCount(String(user.email).trim().toLowerCase());
+        setUnreadCount(count);
+      } catch (error) {
+        console.error('Error cargando contador de notificaciones:', error);
+      }
+    };
+
+    loadUnreadCount();
+  }, [isLoggedIn, user?.email, showNotifications]);
 
   return (
     <>
@@ -275,6 +296,19 @@ export default function TabNavigator({ navigation }) {
             if (route.name === 'Ranking') icon = focused ? 'trophy' : 'trophy-outline';
             if (route.name === 'Notifications') icon = focused ? 'notifications' : 'notifications-outline';
             if (route.name === 'Upload') icon = focused ? 'add-circle' : 'add-circle-outline';
+
+            if (route.name === 'Notifications') {
+              return (
+                <View style={styles.iconWrap}>
+                  <Ionicons name={icon} color={color} size={24} />
+                  {unreadCount > 0 ? (
+                    <View style={[styles.badge, { backgroundColor: colors.danger }]}> 
+                      <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }
 
             return <Ionicons name={icon} color={color} size={24} />;
           },
@@ -431,6 +465,28 @@ export default function TabNavigator({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  iconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',

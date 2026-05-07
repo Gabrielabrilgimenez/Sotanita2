@@ -1,15 +1,26 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { formatLikes } from '../utils/format';
 
 export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
   const { colors, typography, textScale } = useAppTheme();
+  const mediaUrls = Array.isArray(item.mediaUrls) && item.mediaUrls.length
+    ? item.mediaUrls
+    : item.url
+      ? [item.url]
+      : [];
+  const mediaType = item.mediaType || 'video';
+  const isCarousel = mediaType === 'carousel' || mediaUrls.length > 1;
+  const isImage = mediaType === 'image' || isCarousel;
 
   return (
     <Pressable onPress={onPress} style={[styles.tile, { backgroundColor: colors.surface }]}> 
       <View style={styles.preview}>
-        <Ionicons name="play" size={24} color={`${colors.textMuted}CC`} />
+        {isImage ? (
+          <Image source={{ uri: mediaUrls[0] }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        ) : null}
+        <Ionicons name={isImage ? (isCarousel ? 'images' : 'image') : 'play'} size={24} color={`${colors.textMuted}CC`} />
       </View>
 
       {variant === 'liked' ? (

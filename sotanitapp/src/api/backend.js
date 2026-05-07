@@ -164,6 +164,18 @@ export async function uploadCommentAudio(formData) {
   return parseResponse(response);
 }
 
+export async function deleteVideoComment(commentId, idUsuario) {
+  const response = await fetch(buildApiUrl(`/api/comments/${commentId}`), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ id_usuario: idUsuario }),
+  });
+
+  return parseResponse(response);
+}
+
 export async function getNotifications(idUsuario, limit = 20, offset = 0) {
   const encodedUser = encodeURIComponent(idUsuario);
   const response = await fetch(
@@ -186,4 +198,23 @@ export async function getAllNotifications(idUsuario, pageSize = 50, maxPages = 5
   }
 
   return all;
+}
+
+export async function getUnreadNotificationsCount(idUsuario) {
+  const encodedUser = encodeURIComponent(idUsuario);
+  const response = await fetch(buildApiUrl(`/api/notificaciones/unread-count?id_usuario=${encodedUser}`));
+  const data = await parseResponse(response);
+  return Number(data.unreadCount || 0);
+}
+
+export async function markNotificationsRead(idUsuario) {
+  const response = await fetch(buildApiUrl('/api/notificaciones/mark-read'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ id_usuario: idUsuario }),
+  });
+
+  return parseResponse(response);
 }

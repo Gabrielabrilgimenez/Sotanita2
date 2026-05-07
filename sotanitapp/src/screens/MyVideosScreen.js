@@ -4,9 +4,11 @@ import {
   Animated,
   Easing,
   FlatList,
+  Image,
   Modal,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,6 +36,8 @@ export default function MyVideosScreen({ navigation, route }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingVideo, setDeletingVideo] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
   const commentsAnim = useRef(new Animated.Value(0)).current;
   const selectedVideoId = route.params?.videoId;
   const sourceTab = route.params?.sourceTab || 'uploaded';
@@ -88,7 +92,14 @@ export default function MyVideosScreen({ navigation, route }) {
   }, [sourceTab, selectedVideoId, user?.email]);
 
   const activeVideo = videos[currentVideo] || null;
+  const mediaUrls = Array.isArray(activeVideo?.mediaUrls) && activeVideo.mediaUrls.length
+    ? activeVideo.mediaUrls
+    : activeVideo?.url
+      ? [activeVideo.url]
+      : [];
+  const mediaType = activeVideo?.mediaType || 'video';
   const canCycleVideos = videos.length > 1;
+  const isLikedView = sourceTab === 'liked';
   const canDeleteVideo = sourceTab === 'uploaded' && Boolean(activeVideo);
 
   const openComments = () => {
@@ -123,6 +134,16 @@ export default function MyVideosScreen({ navigation, route }) {
     () => (sourceTab === 'liked' ? 'Video que te gusta' : 'Tu video'),
     [sourceTab]
   );
+
+  useEffect(() => {
+    setCarouselIndex(0);
+  }, [activeVideo?.id]);
+
+  const handleCarouselScrollEnd = (event) => {
+    if (!carouselWidth) return;
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / carouselWidth);
+    setCarouselIndex(Math.max(0, Math.min(nextIndex, mediaUrls.length - 1)));
+  };
 
   const handleDeleteVideo = async () => {
     if (!activeVideo?.id || !user?.email || deletingVideo) return;
@@ -189,17 +210,58 @@ export default function MyVideosScreen({ navigation, route }) {
               if (!canCycleVideos) return;
               setCurrentVideo((prev) => (prev + 1) % videos.length);
               setLiked(false);
+              setCarouselIndex(0);
             }}
           >
-            <Video
-              style={StyleSheet.absoluteFillObject}
-              source={{ uri: activeVideo.url }}
-              resizeMode={ResizeMode.COVER}
-              isLooping
-              shouldPlay
-              isMuted={false}
-              volume={1.0}
-            />
+            {mediaType === 'video' ? (
+              <Video
+                style={StyleSheet.absoluteFillObject}
+                source={{ uri: activeVideo.url }}
+                resizeMode={isLikedView ? ResizeMode.COVER : ResizeMode.CONTAIN}
+                isLooping
+                shouldPlay
+                isMuted={false}
+                volume={1.0}
+              />
+            ) : mediaUrls.length > 1 ? (
+              <View
+                style={StyleSheet.absoluteFillObject}
+                onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
+              >
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={handleCarouselScrollEnd}
+                >
+                  {mediaUrls.map((url) => (
+                    <Image
+                      key={url}
+                      source={{ uri: url }}
+                      resizeMode="cover"
+                      style={{ width: carouselWidth || '100%', height: '100%' }}
+                    />
+                  ))}
+                </ScrollView>
+                <View style={styles.carouselDots}>
+                  {mediaUrls.map((_, index) => (
+                    <View
+                      key={`carousel-dot-${index}`}
+                      style={[
+                        styles.dot,
+                        { width: index === carouselIndex ? 16 : 6, backgroundColor: index === carouselIndex ? colors.white : 'rgba(255,255,255,0.5)' },
+                      ]}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: activeVideo.url }}
+                style={StyleSheet.absoluteFillObject}
+                resizeMode="cover"
+              />
+            )}
             <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={StyleSheet.absoluteFillObject} />
             <Ionicons name="play-circle" size={90} color={`${colors.white}55`} />
             <Text style={{ color: `${colors.white}80`, marginTop: spacing.xs }}>{headerTitle}</Text>
@@ -230,7 +292,9 @@ export default function MyVideosScreen({ navigation, route }) {
             <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}> 
               <Ionicons name="chatbubble-outline" size={26} color={colors.white} />
             </View>
-            <Text style={{ color: colors.white, fontSize: typography.sizes.xs * textScale }}>234</Text>
+            <Text style={{ color: colors.white, fontSize: typography.sizes.xs * textScale }}>
+              {activeVideo?.commentsCount || 0}
+            </Text>
           </Pressable>
 
           <Pressable onPress={() => setShowShare(true)} style={styles.actionWrap}>
@@ -365,6 +429,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
   },
   sideActions: {
     position: 'absolute',
@@ -382,6 +447,18 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  carouselDots: {
+    position: 'absolute',
+    bottom: 18,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
   },
   overlay: {
     flex: 1,
