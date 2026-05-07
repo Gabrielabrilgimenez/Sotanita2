@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { useAuth } from '../context/AuthContext';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllNotifications } from '../api/backend';
+import { getAllNotifications, markNotificationsRead } from '../api/backend';
 import ScreenGradient from '../components/ScreenGradient';
 import NotificationItem from '../components/NotificationItem';
 
@@ -57,6 +57,7 @@ export default function NotificationsScreen({ navigation }) {
             time: formatRelativeTime(item.createdAt),
           }));
           setItems(mapped);
+          await markNotificationsRead(currentUserEmail);
         } catch (error) {
           console.error('Error cargando notificaciones:', error);
           setItems([]);

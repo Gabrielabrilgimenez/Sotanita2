@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode, Audio } from 'expo-av';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getVideos, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio } from '../api/backend';
+import { getVideos, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 
@@ -67,9 +67,10 @@ const MediaCarousel = ({ urls, height }) => {
   );
 };
 
-const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, commentsCount, liking }) => {
+const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, commentsCount, liking, isAudioPlaying }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
+  const lastTapRef = useRef(0);
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -91,7 +92,7 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
       if (!videoRef.current || cancelled) return;
 
       try {
-        if (isActive) {
+        if (isActive && !isAudioPlaying) {
           await videoRef.current.playAsync();
         } else {
           await videoRef.current.pauseAsync();
@@ -107,19 +108,27 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
     return () => {
       cancelled = true;
     };
-  }, [isActive, isVideo]);
+  }, [isActive, isVideo, isAudioPlaying]);
+
+  const handleMediaTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 250) {
+      onLikePress(video);
+    }
+    lastTapRef.current = now;
+  };
 
   return (
-    <View style={[styles.videoContainer, { height }]}>
+    <Pressable style={[styles.videoContainer, { height }]} onPress={handleMediaTap}> 
       {isVideo ? (
         <Video
           ref={videoRef}
           style={StyleSheet.absoluteFillObject}
           source={{ uri: video.url }}
-          resizeMode={ResizeMode.COVER}
+          resizeMode={ResizeMode.CONTAIN}
           isLooping
-          shouldPlay={isActive}
-          isMuted={!isActive}
+          shouldPlay={isActive && !isAudioPlaying}
+          isMuted={!isActive || isAudioPlaying}
           volume={1.0}
         />
       ) : mediaUrls.length > 1 ? (
@@ -177,7 +186,7 @@ const FeedVideoItem = ({ video, isActive, height, onLikePress, onCommentPress, c
           <Text style={styles.actionText}>Compartir</Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 };
 
@@ -193,6 +202,7 @@ export default function HomeScreen({ navigation }) {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [likingVideoId, setLikingVideoId] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -217,6 +227,13 @@ export default function HomeScreen({ navigation }) {
   const hasMoreRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const activeIndexRef = useRef(0);
+  const listRef = useRef(null);
+
+  const videoCategories = ['Todos', 'Goles', 'Regates', 'Asistencias', 'Paradas', 'Faltas', 'Jugadas', 'Entrenamientos'];
+
+  const visibleVideos = selectedCategory === 'Todos'
+    ? videos
+    : videos.filter((video) => String(video.category || '').trim().toLowerCase() === selectedCategory.toLowerCase());
 
   const refreshFeed = useCallback(async () => {
     setRefreshing(true);
@@ -351,6 +368,7 @@ export default function HomeScreen({ navigation }) {
   const mapComment = useCallback((comment) => ({
     id: comment.id,
     author: comment.username,
+    userId: comment.userId,
     type: comment.type,
     content: comment.type === 'audio' ? null : comment.text,
     audioUrl: comment.audioUrl,
@@ -382,6 +400,10 @@ export default function HomeScreen({ navigation }) {
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (!finished) return;
+      if (audioRef.current) {
+        audioRef.current.pauseAsync().catch(() => {});
+      }
+      setIsAudioPlaying(false);
       setShowComments(false);
       setSelectedVideoId(null);
       setCommentText('');
@@ -457,6 +479,40 @@ export default function HomeScreen({ navigation }) {
       Alert.alert('Error', 'No se pudo reproducir el audio.');
     }
   }, [activeAudioId]);
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    activeIndexRef.current = 0;
+    setActiveIndex(0);
+    listRef.current.scrollToOffset({ offset: 0, animated: false });
+  }, [selectedCategory]);
+
+  const handleDeleteComment = useCallback((commentId) => {
+    if (!selectedVideoId || !commentId || !user?.email) return;
+    Alert.alert('Eliminar comentario', 'Quieres eliminar este comentario?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Borrar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteVideoComment(commentId, user.email);
+            setCommentsByVideo((prev) => ({
+              ...prev,
+              [selectedVideoId]: (prev[selectedVideoId] || []).filter((c) => c.id !== commentId),
+            }));
+            setVideos((prev) => prev.map((item) => (
+              item.id === selectedVideoId
+                ? { ...item, commentsCount: Math.max(0, (item.commentsCount || 0) - 1) }
+                : item
+            )));
+          } catch (error) {
+            Alert.alert('Error', error.message || 'No se pudo eliminar el comentario.');
+          }
+        },
+      },
+    ]);
+  }, [selectedVideoId, user?.email]);
 
   const handleStopRecording = useCallback(async () => {
     if (!selectedVideoId) return;
@@ -622,6 +678,10 @@ export default function HomeScreen({ navigation }) {
     if (isUploadingAudio || isRecording) return;
 
     if (Platform.OS === 'web') {
+      if (!navigator?.mediaDevices?.getUserMedia || !globalThis.MediaRecorder) {
+        Alert.alert('No disponible', 'Tu navegador no soporta grabacion de audio.');
+        return;
+      }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaStreamRef.current = stream;
@@ -634,6 +694,7 @@ export default function HomeScreen({ navigation }) {
         };
         recorder.start();
         mediaRecorderRef.current = recorder;
+        setCommentText('');
         setIsRecording(true);
       } catch (error) {
         Alert.alert('Permisos requeridos', 'Necesitas permisos de microfono.');
@@ -653,6 +714,7 @@ export default function HomeScreen({ navigation }) {
       await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await recording.startAsync();
       recordingRef.current = recording;
+      setCommentText('');
       setIsRecording(true);
       return;
     }
@@ -673,14 +735,14 @@ export default function HomeScreen({ navigation }) {
   }, [refreshFeed]);
 
   const updateActiveIndexFromOffset = useCallback((offsetY) => {
-    if (!containerHeight || videos.length === 0) return;
+    if (!containerHeight || visibleVideos.length === 0) return;
     const nextIndex = Math.round(offsetY / containerHeight);
-    const clampedIndex = Math.max(0, Math.min(nextIndex, videos.length - 1));
+    const clampedIndex = Math.max(0, Math.min(nextIndex, visibleVideos.length - 1));
     if (clampedIndex !== activeIndexRef.current) {
       activeIndexRef.current = clampedIndex;
       setActiveIndex(clampedIndex);
     }
-  }, [containerHeight, videos.length]);
+  }, [containerHeight, visibleVideos.length]);
 
   const onMomentumScrollEnd = useCallback((event) => {
     updateActiveIndexFromOffset(event.nativeEvent.contentOffset.y);
@@ -693,14 +755,43 @@ export default function HomeScreen({ navigation }) {
   const activeComments = selectedVideoId ? (commentsByVideo[selectedVideoId] || []) : [];
 
   return (
-    <View style={styles.root} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
+    <View style={styles.root}>
+      <View style={styles.categoryBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
+          {videoCategories.map((category) => (
+            <Pressable
+              key={category}
+              onPress={() => setSelectedCategory(category)}
+              style={[
+                styles.categoryChip,
+                {
+                  backgroundColor: selectedCategory === category ? colors.primary : colors.surface,
+                  borderColor: selectedCategory === category ? colors.primary : colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: selectedCategory === category ? colors.black : colors.text,
+                  fontWeight: '600',
+                }}
+              >
+                {category}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
       {loading && videos.length === 0 ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : containerHeight > 0 ? (
         <FlatList
-          data={videos}
+          ref={listRef}
+          data={visibleVideos}
           extraData={{ activeIndex, isFocused, containerHeight }}
           renderItem={({ item, index }) => (
             <FeedVideoItem 
@@ -710,6 +801,7 @@ export default function HomeScreen({ navigation }) {
                onLikePress={handleLike}
                onCommentPress={openComments}
                commentsCount={item.commentsCount ?? (commentsByVideo[item.id] || []).length}
+               isAudioPlaying={isAudioPlaying}
                liking={likingVideoId === item.id}
             />
           )}
@@ -746,6 +838,7 @@ export default function HomeScreen({ navigation }) {
           }
         />
       ) : null}
+      </View>
 
       <Modal visible={showComments} transparent animationType="none" onRequestClose={closeComments}>
         <View style={[styles.commentsOverlay, { backgroundColor: colors.overlay }]}> 
@@ -773,7 +866,14 @@ export default function HomeScreen({ navigation }) {
                   <View key={comment.id} style={styles.commentRow}>
                     <View style={[styles.commentAvatar, { backgroundColor: colors.surfaceElevated }]} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text, fontWeight: '700' }}>@{comment.author || comment.username}</Text>
+                      <View style={styles.commentHeaderRow}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>@{comment.author || comment.username}</Text>
+                        {String(comment.userId || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ? (
+                          <Pressable onPress={() => handleDeleteComment(comment.id)} style={styles.commentDelete}>
+                            <Ionicons name="trash" size={16} color={colors.danger} />
+                          </Pressable>
+                        ) : null}
+                      </View>
                       {(comment.type || comment?.type) === 'audio' ? (
                         <Pressable
                           style={[styles.audioBubble, { backgroundColor: colors.surfaceElevated }]}
@@ -833,6 +933,10 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
+  categoryBar: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
+  categoryRow: { gap: 8, paddingRight: 12 },
+  categoryChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
+  listWrap: { flex: 1 },
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },
   emptyText: { fontSize: 16, fontWeight: '600' },
@@ -855,6 +959,8 @@ const styles = StyleSheet.create({
   commentsPanel: { width: '92%', height: '100%', alignSelf: 'flex-end', borderTopLeftRadius: 24, borderBottomLeftRadius: 24 },
   commentsHeader: { padding: 16, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   commentRow: { flexDirection: 'row', gap: 10 },
+  commentHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  commentDelete: { marginLeft: 8, padding: 4 },
   commentAvatar: { width: 38, height: 38, borderRadius: 19 },
   commentInputRow: { borderTopWidth: 1, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
   commentInput: { flex: 1, minHeight: 46, borderRadius: 24, paddingHorizontal: 16 },
