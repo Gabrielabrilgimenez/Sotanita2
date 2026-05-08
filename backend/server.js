@@ -279,11 +279,31 @@ app.get('/api/videos/:id/comments', async (req, res) => {
             .sort({ createdAt: -1 })
             .toArray();
 
-        return res.json(comments.map((comment) => ({
-            ...comment,
-            id: comment._id.toString(),
-            _id: undefined,
-        })));
+        const enrichedComments = await Promise.all(comments.map(async (comment) => {
+            const authorEmail = String(comment.userId || '').trim().toLowerCase();
+            let authorProfile = null;
+
+            if (authorEmail) {
+                authorProfile = await db.collection('perfiles').findOne({ email: authorEmail });
+            }
+
+            const cardData = authorProfile
+                ? await resolveCardData(authorProfile.teamId, authorProfile.frameId)
+                : { teamName: null, teamImageUrl: null, frameImageId: null };
+
+            return {
+                ...comment,
+                authorUsername: authorProfile?.username || comment.username || authorEmail.split('@')[0] || 'usuario',
+                authorProfileImageUrl: authorProfile?.profileImageUrl || null,
+                authorTeamName: cardData.teamName,
+                authorTeamImageUrl: cardData.teamImageUrl,
+                authorFrameImageId: cardData.frameImageId,
+                id: comment._id.toString(),
+                _id: undefined,
+            };
+        }));
+
+        return res.json(enrichedComments);
     } catch (error) {
         console.error('Error al obtener comentarios:', error);
         return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
@@ -475,13 +495,31 @@ app.get('/api/notificaciones', async (req, res) => {
             .limit(limit)
             .toArray();
 
-        return res.json(
-            notifications.map((n) => ({
+        const enrichedNotifications = await Promise.all(notifications.map(async (n) => {
+            const actorEmail = String(n.actorUserId || '').trim().toLowerCase();
+            let actorProfile = null;
+
+            if (actorEmail) {
+                actorProfile = await db.collection('perfiles').findOne({ email: actorEmail });
+            }
+
+            const cardData = actorProfile
+                ? await resolveCardData(actorProfile.teamId, actorProfile.frameId)
+                : { teamName: null, teamImageUrl: null, frameImageId: null };
+
+            return {
                 ...n,
+                actorUsername: actorProfile?.username || n.actorUsername || actorEmail.split('@')[0] || 'usuario',
+                actorProfileImageUrl: actorProfile?.profileImageUrl || null,
+                actorTeamName: cardData.teamName,
+                actorTeamImageUrl: cardData.teamImageUrl,
+                actorFrameImageId: cardData.frameImageId,
                 id: n._id.toString(),
                 _id: undefined,
-            }))
-        );
+            };
+        }));
+
+        return res.json(enrichedNotifications);
     } catch (error) {
         console.error('Error al obtener notificaciones:', error);
         return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
@@ -524,6 +562,25 @@ app.post('/api/notificaciones/mark-read', async (req, res) => {
         return res.json({ updated: result.modifiedCount || 0 });
     } catch (error) {
         console.error('Error al marcar notificaciones como leidas:', error);
+        return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.delete('/api/notificaciones', async (req, res) => {
+    try {
+        const userIdRaw = String(req.body?.id_usuario || '').trim().toLowerCase();
+
+        if (!userIdRaw) {
+            return res.status(400).json({ message: 'id_usuario es obligatorio' });
+        }
+
+        const result = await db.collection('notificaciones').deleteMany({
+            recipientUserId: userIdRaw,
+        });
+
+        return res.json({ deleted: result.deletedCount || 0 });
+    } catch (error) {
+        console.error('Error al eliminar notificaciones:', error);
         return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
     }
 });

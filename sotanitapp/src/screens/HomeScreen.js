@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform } from 'react-native';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,7 @@ import { getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, pos
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 import FifaCard from '../components/FifaCard';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
@@ -238,6 +239,7 @@ export default function HomeScreen({ navigation }) {
   const [carouselIndexByVideo, setCarouselIndexByVideo] = useState({});
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [pendingDeleteComment, setPendingDeleteComment] = useState(null);
+  const [loadingNewComment, setLoadingNewComment] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
   const screenWidth = Dimensions.get('window').width;
   const recordingRef = useRef(null);
@@ -413,8 +415,13 @@ export default function HomeScreen({ navigation }) {
 
   const mapComment = useCallback((comment) => ({
     id: comment.id || comment._id,
-    author: comment.username,
+    author: comment.username || comment.authorUsername,
+    authorUsername: comment.authorUsername || comment.username,
     userId: comment.userId || comment.id_usuario,
+    authorProfileImageUrl: comment.authorProfileImageUrl,
+    authorTeamName: comment.authorTeamName,
+    authorTeamImageUrl: comment.authorTeamImageUrl,
+    authorFrameImageId: comment.authorFrameImageId,
     type: comment.type,
     content: comment.type === 'audio' ? null : comment.text,
     audioUrl: comment.audioUrl,
@@ -584,6 +591,7 @@ export default function HomeScreen({ navigation }) {
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === 'inactive') return;
       setIsUploadingAudio(true);
+      setLoadingNewComment(true);
 
       const stopPromise = new Promise((resolve) => {
         recorder.onstop = () => resolve();
@@ -610,21 +618,25 @@ export default function HomeScreen({ navigation }) {
           text: null,
           audioUrl: uploadResult.url,
         };
-        const response = await postVideoComment(selectedVideoId, payload);
-        const formatted = mapComment(response);
+        await postVideoComment(selectedVideoId, payload);
+        
+        // Recargar comentarios del servidor
+        const updatedComments = await getVideoComments(selectedVideoId);
+        const mapped = updatedComments.map(mapComment);
         setCommentsByVideo((prev) => ({
           ...prev,
-          [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+          [selectedVideoId]: mapped,
         }));
         setVideos((prev) => prev.map((item) => (
           item.id === selectedVideoId
-            ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+            ? { ...item, commentsCount: mapped.length || 0 }
             : item
         )));
       } catch (error) {
         Alert.alert('Error', error.message || 'No se pudo subir el audio.');
       } finally {
         setIsUploadingAudio(false);
+        setLoadingNewComment(false);
       }
 
       return;
@@ -635,12 +647,14 @@ export default function HomeScreen({ navigation }) {
       if (!recording) return;
       setIsRecording(false);
       setIsUploadingAudio(true);
+      setLoadingNewComment(true);
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       recordingRef.current = null;
 
       if (!uri) {
         setIsUploadingAudio(false);
+        setLoadingNewComment(false);
         Alert.alert('Error', 'No se pudo obtener el audio.');
         return;
       }
@@ -661,22 +675,26 @@ export default function HomeScreen({ navigation }) {
         audioUrl: uploadResult.url,
       };
 
-      const response = await postVideoComment(selectedVideoId, payload);
-      const formatted = mapComment(response);
+      await postVideoComment(selectedVideoId, payload);
+      
+      // Recargar comentarios del servidor
+      const updatedComments = await getVideoComments(selectedVideoId);
+      const mapped = updatedComments.map(mapComment);
 
       setCommentsByVideo((prev) => ({
         ...prev,
-        [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+        [selectedVideoId]: mapped,
       }));
       setVideos((prev) => prev.map((item) => (
         item.id === selectedVideoId
-          ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+          ? { ...item, commentsCount: mapped.length || 0 }
           : item
       )));
     } catch (error) {
       Alert.alert('Error', error.message || 'No se pudo subir el audio.');
     } finally {
       setIsUploadingAudio(false);
+      setLoadingNewComment(false);
     }
   }, [selectedVideoId, user?.email, user?.username, mapComment]);
 
@@ -711,6 +729,7 @@ export default function HomeScreen({ navigation }) {
       return;
     }
 
+    setLoadingNewComment(true);
     try {
       const payload = {
         id_usuario: user?.email || 'usuario',
@@ -720,22 +739,27 @@ export default function HomeScreen({ navigation }) {
         audioUrl: null,
       };
 
-      const response = await postVideoComment(selectedVideoId, payload);
-      const formatted = mapComment(response);
+      await postVideoComment(selectedVideoId, payload);
 
+      // Recargar comentarios del servidor para obtener datos enriquecidos
+      const updatedComments = await getVideoComments(selectedVideoId);
+      const mapped = updatedComments.map(mapComment);
       setCommentsByVideo((prev) => ({
         ...prev,
-        [selectedVideoId]: [formatted, ...(prev[selectedVideoId] || [])],
+        [selectedVideoId]: mapped,
       }));
+      
       setVideos((prev) => prev.map((item) => (
         item.id === selectedVideoId
-          ? { ...item, commentsCount: (item.commentsCount || 0) + 1 }
+          ? { ...item, commentsCount: mapped.length || 0 }
           : item
       )));
       setCommentText('');
       setIsRecording(false);
     } catch (error) {
       Alert.alert('Error', error.message || 'No se pudo enviar el comentario.');
+    } finally {
+      setLoadingNewComment(false);
     }
   }, [commentText, isRecording, isUploadingAudio, selectedVideoId, user?.email, user?.username, mapComment, handleStopRecording]);
 
@@ -953,9 +977,7 @@ export default function HomeScreen({ navigation }) {
 
       <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
       {loading && videos.length === 0 ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <View style={styles.loaderContainer} />
       ) : containerHeight > 0 ? (
         <FlatList
           ref={listRef}
@@ -1029,16 +1051,26 @@ export default function HomeScreen({ navigation }) {
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }} keyboardShouldPersistTaps="handled">
               {activeComments.length === 0 ? (
                 <Text style={{ color: colors.textMuted }}>No hay comentarios todavia.</Text>
               ) : (
                 activeComments.map((comment) => (
-                  <View key={comment.id} style={styles.commentRow}>
-                    <View style={[styles.commentAvatar, { backgroundColor: colors.surfaceElevated }]} />
+                  <View key={comment.id} style={[styles.commentRow, { backgroundColor: colors.surfaceElevated, borderRadius: 12, padding: 10 }]}>
+                    <FifaCard
+                      username={comment.authorUsername || comment.author}
+                      team={comment.authorTeamName || 'Sin equipo'}
+                      position="---"
+                      backgroundUrl={comment.authorTeamImageUrl}
+                      frameUrl={comment.authorFrameImageId}
+                      photoUrl={comment.authorProfileImageUrl}
+                      size="small"
+                      disableShadow
+                      style={{ marginRight: 4 }}
+                    />
                     <View style={{ flex: 1 }}>
-                      <View style={styles.commentHeaderRow}>
-                        <Text style={{ color: colors.text, fontWeight: '700' }}>@{comment.author || comment.username}</Text>
+                      <View style={[styles.commentHeaderRow, { marginBottom: 4 }]}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>@{comment.author || comment.authorUsername}</Text>
                         {String(comment.userId || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ? (
                           <Pressable
                             onPress={() => handleDeleteComment(comment)}
@@ -1066,7 +1098,7 @@ export default function HomeScreen({ navigation }) {
                           </Text>
                         </Pressable>
                       ) : (
-                        <Text style={{ color: colors.text }}>{comment.content || comment.text}</Text>
+                        <Text style={{ color: colors.text, fontSize: 13 }}>{comment.content || comment.text}</Text>
                       )}
                     </View>
                   </View>
@@ -1133,6 +1165,7 @@ export default function HomeScreen({ navigation }) {
           </Animated.View>
         </View>
       </Modal>
+      <LoadingOverlay visible={loading && videos.length === 0 || loadingNewComment} />
     </View>
   );
 }
@@ -1181,7 +1214,7 @@ const styles = StyleSheet.create({
   commentsOverlay: { flex: 1, justifyContent: 'flex-end' },
   commentsPanel: { width: '92%', height: '100%', alignSelf: 'flex-end', borderTopLeftRadius: 24, borderBottomLeftRadius: 24 },
   commentsHeader: { padding: 16, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  commentRow: { flexDirection: 'row', gap: 10 },
+  commentRow: { flexDirection: 'row', gap: 6, alignItems: 'flex-start' },
   commentHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   commentDelete: { marginLeft: 8, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   commentAvatar: { width: 38, height: 38, borderRadius: 19 },

@@ -1,6 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { useAppTheme } from '../hooks/useAppTheme';
+import LoadingOverlay from '../components/LoadingOverlay';
 import AuthNavigator from './AuthNavigator';
 import TabNavigator from './TabNavigator';
 import SearchScreen from '../screens/SearchScreen';
@@ -11,12 +13,13 @@ const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
   const { isLoggedIn, guestMode, authLoading } = useAuth();
+  const { colors } = useAppTheme();
   const isAuthenticated = isLoggedIn || guestMode;
 
   if (authLoading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        <ActivityIndicator size="large" color="#FFD600" />
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <LoadingOverlay visible />
       </View>
     );
   }

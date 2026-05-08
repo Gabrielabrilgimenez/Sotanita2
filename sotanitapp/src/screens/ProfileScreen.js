@@ -12,6 +12,7 @@ import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import VideoTile from '../components/VideoTile';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -67,6 +68,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const teamColumnHighlight = highContrast ? `${colors.primary}22` : darkMode ? `${colors.white}08` : `${colors.black}08`;
   const positionLabel = tempValue || 'Selecciona una posicion';
   const teamLabel = tempValue || 'Selecciona un equipo';
+  const isBlocking = photoLoading || savingChanges;
 
   useResetScrollOnFocus(scrollRef);
 
@@ -604,6 +606,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           </Pressable>
         </Pressable>
       </Modal>
+      <LoadingOverlay visible={isBlocking} />
     </ScreenGradient>
   );
 }

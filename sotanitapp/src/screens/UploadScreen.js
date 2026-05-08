@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, Alert, ActivityIndicator, Modal, Platform } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../hooks/useAppTheme';
@@ -8,6 +8,7 @@ import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { getCategories, uploadVideo } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 
@@ -304,16 +305,13 @@ export default function UploadScreen({ navigation }) {
           numberOfLines={4}
         />
 
-        {loading ? (
-           <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: spacing.md }} />
-        ) : (
-          <AppButton
-            title="Publicar video"
-            onPress={checkAndUpload}
-            disabled={!mediaFiles.length || !title || !category}
-            style={{ marginTop: spacing.md }}
-          />
-        )}
+        <AppButton
+          title="Publicar video"
+          onPress={checkAndUpload}
+          disabled={loading || !mediaFiles.length || !title || !category}
+          loading={loading}
+          style={{ marginTop: spacing.md }}
+        />
       </ScrollView>
 
       <Modal
@@ -369,6 +367,7 @@ export default function UploadScreen({ navigation }) {
           </View>
         </Pressable>
       </Modal>
+      <LoadingOverlay visible={loading} />
     </ScreenGradient>
   );
 }

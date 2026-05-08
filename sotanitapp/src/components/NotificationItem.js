@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import Avatar from './Avatar';
+import FifaCard from './FifaCard';
 import { useAppTheme } from '../hooks/useAppTheme';
 
 export default function NotificationItem({ item, onOpenVideo }) {
@@ -7,10 +7,19 @@ export default function NotificationItem({ item, onOpenVideo }) {
 
   return (
     <View style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: spacing.sm }]}> 
-      <Avatar name={item.user} />
+      <FifaCard
+        username={item.user || item.actorUsername}
+        team={item.actorTeamName || 'Sin equipo'}
+        position="---"
+        backgroundUrl={item.actorTeamImageUrl}
+        frameUrl={item.actorFrameImageId}
+        photoUrl={item.actorProfileImageUrl}
+        size="small"
+        disableShadow
+      />
       <View style={styles.content}>
-        <Text style={{ color: colors.text, fontSize: typography.sizes.sm * textScale }}>
-          <Text style={{ fontWeight: typography.weights.bold }}>{item.user}</Text>{' '}
+        <Text style={{ color: colors.text, fontSize: (typography.sizes.sm * 0.95) * textScale, lineHeight: 18 }}>
+          <Text style={{ fontWeight: typography.weights.bold }}>{item.user || item.actorUsername}</Text>{' '}
           <Text style={{ color: colors.textMuted }}>{item.action}</Text>
           {item.videoTitle ? (
             <Text
@@ -38,11 +47,11 @@ export default function NotificationItem({ item, onOpenVideo }) {
 const styles = StyleSheet.create({
   item: {
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 12,
+    padding: 10,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 8,
   },
   content: {
     flex: 1,

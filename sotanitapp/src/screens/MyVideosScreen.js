@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { deleteVideo, getAllVideos } from '../api/backend';
 import { formatLikes } from '../utils/format';
 
@@ -78,6 +79,7 @@ export default function MyVideosScreen({ navigation, route }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingVideo, setDeletingVideo] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isBlocking = loadingVideos || deletingVideo;
   const [commentText, setCommentText] = useState('');
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
@@ -431,10 +433,16 @@ export default function MyVideosScreen({ navigation, route }) {
               data={[1, 2, 3, 4, 5]}
               keyExtractor={(item) => String(item)}
               style={{ flex: 1 }}
-              contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+              contentContainerStyle={{ padding: spacing.md, gap: spacing.sm }}
               renderItem={({ item }) => (
                 <View style={styles.commentRow}>
-                  <View style={[styles.commentAvatar, { backgroundColor: colors.surfaceElevated }]} />
+                  <FifaCard
+                    username={`Usuario${item}`}
+                    team="Sin equipo"
+                    position="---"
+                    size="small"
+                    disableShadow
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontWeight: typography.weights.semibold }}>Usuario{item}</Text>
                     <Text style={{ color: colors.textMuted }}>Que golazo! Increible jugada.</Text>
@@ -494,6 +502,7 @@ export default function MyVideosScreen({ navigation, route }) {
           </Pressable>
         </Pressable>
       </Modal>
+      <LoadingOverlay visible={isBlocking} />
     </View>
   );
 }

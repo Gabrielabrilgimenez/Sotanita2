@@ -81,12 +81,6 @@ export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
         <Ionicons name={isImage ? (isCarousel ? 'images' : 'image') : 'play'} size={24} color={`${colors.textMuted}CC`} />
       </View>
 
-      {variant === 'liked' ? (
-        <View style={[styles.userTag, { backgroundColor: `${colors.black}80` }]}>
-          <Text style={{ color: colors.white, fontSize: typography.sizes.xs * textScale }}>@{item.user}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.likesRow}>
         <Ionicons name="heart" size={13} color="#EF4444" />
         <Text style={{ color: colors.white, fontSize: typography.sizes.xs * textScale, fontWeight: '700' }}>
@@ -110,14 +104,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(34,197,94,0.1)',
-  },
-  userTag: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
   },
   likesRow: {
     position: 'absolute',

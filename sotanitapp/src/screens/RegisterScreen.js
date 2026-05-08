@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +11,7 @@ import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -285,7 +286,12 @@ export default function RegisterScreen({ navigation }) {
           ]}
         >
           {photoLoading ? (
-            <ActivityIndicator size="small" color={colors.primary} />
+            <View style={styles.photoPlaceholder}>
+              <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold }}>Procesando foto...</Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>
+                Espera un momento
+              </Text>
+            </View>
           ) : photoUri ? (
             <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
           ) : (
@@ -546,6 +552,7 @@ export default function RegisterScreen({ navigation }) {
           </View>
         </Pressable>
       </Modal>
+      <LoadingOverlay visible={registering || photoLoading} />
     </ScreenGradient>
   );
 }

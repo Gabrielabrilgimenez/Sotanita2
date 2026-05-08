@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, Easing, FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, Alert } from 'react-native';
 import HomeScreen from '../screens/HomeScreen';
 import RankingScreen from '../screens/RankingScreen';
 import UploadScreen from '../screens/UploadScreen';
@@ -9,9 +9,10 @@ import NotificationsScreen from '../screens/NotificationsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead } from '../api/backend';
+import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
 import NotificationItem from '../components/NotificationItem';
 import FifaCard from '../components/FifaCard';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const Tab = createBottomTabNavigator();
 const closeButtonDark = require('../../assets/botonX/dark.png');
@@ -47,12 +48,15 @@ export default function TabNavigator({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
   const { width, height } = useWindowDimensions();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [modalNotifications, setModalNotifications] = useState([]);
   const [loadingModalNotifications, setLoadingModalNotifications] = useState(false);
+  const [loadingDeleteNotifications, setLoadingDeleteNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showProfileTransition, setShowProfileTransition] = useState(false);
   const [isProfileAnimating, setIsProfileAnimating] = useState(false);
   const profileTransition = useRef(new Animated.Value(0)).current;
+  const notificationsAnim = useRef(new Animated.Value(0)).current;
   const profileCloseButtonSource = highContrast
     ? closeButtonContrast
     : darkMode
@@ -188,10 +192,15 @@ export default function TabNavigator({ navigation }) {
         const mapped = filtered.map((item) => ({
           id: item.id,
           user: String(item.actorUsername || item.actorUserId || 'Usuario').split('@')[0],
+          actorUsername: item.actorUsername,
           action: 'le ha dado me gusta a tu video',
           videoId: item.videoId,
           videoTitle: item.videoTitle || '',
           time: formatRelativeTime(item.createdAt),
+          actorProfileImageUrl: item.actorProfileImageUrl,
+          actorTeamName: item.actorTeamName,
+          actorTeamImageUrl: item.actorTeamImageUrl,
+          actorFrameImageId: item.actorFrameImageId,
         }));
 
         setModalNotifications(mapped);
@@ -207,6 +216,53 @@ export default function TabNavigator({ navigation }) {
 
     loadModalNotifications();
   }, [showNotifications, isLoggedIn, user?.email]);
+
+  useEffect(() => {
+    if (showNotifications) {
+      setShowNotificationsModal(true);
+      notificationsAnim.setValue(0);
+      Animated.timing(notificationsAnim, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    if (showNotificationsModal) {
+      Animated.timing(notificationsAnim, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setShowNotificationsModal(false);
+        }
+      });
+    }
+  }, [notificationsAnim, showNotifications, showNotificationsModal]);
+
+  const handleDeleteAllNotifications = useCallback(async () => {
+    if (!isLoggedIn || !user?.email) {
+      Alert.alert('Error', 'Debes estar logueado para eliminar notificaciones.');
+      return;
+    }
+
+    try {
+      setLoadingDeleteNotifications(true);
+      const currentUserEmail = String(user.email).trim().toLowerCase();
+      await deleteAllNotifications(currentUserEmail);
+      setModalNotifications([]);
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Error al eliminar notificaciones:', error);
+      Alert.alert('Error', `No se pudieron eliminar las notificaciones: ${error.message}`);
+    } finally {
+      setLoadingDeleteNotifications(false);
+    }
+  }, [isLoggedIn, user?.email]);
 
   useEffect(() => {
     const loadUnreadCount = async () => {
@@ -390,21 +446,52 @@ export default function TabNavigator({ navigation }) {
       ) : null}
 
       <Modal
-        visible={showNotifications}
+        visible={showNotificationsModal}
         transparent
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowNotifications(false)}
       >
-        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => setShowNotifications(false)}>
-          <Pressable
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowNotifications(false)} pointerEvents="auto">
+            <Animated.View style={[styles.modalBackdrop, { backgroundColor: colors.overlay, opacity: notificationsAnim }]} pointerEvents="none" />
+          </Pressable>
+          {modalNotifications.length > 0 && (
+            <Pressable
+              onPress={() => {
+                Alert.alert(
+                  'Limpiar notificaciones',
+                  '¿Estás seguro de que deseas eliminar todas tus notificaciones?',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Eliminar',
+                      style: 'destructive',
+                      onPress: handleDeleteAllNotifications,
+                    },
+                  ]
+                );
+              }}
+              style={[styles.cleanButtonFixed, { backgroundColor: colors.danger }]}
+            >
+              <Ionicons name="sparkles" size={28} color={colors.white} />
+            </Pressable>
+          )}
+          <Animated.View
             style={[
               styles.bottomSheet,
               {
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
+                transform: [
+                  {
+                    translateY: notificationsAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [420, 0],
+                    }),
+                  },
+                ],
               },
             ]}
-            onPress={() => {}}
           >
             <View style={[styles.sheetHeader, { borderBottomColor: colors.border }]}> 
               <Text
@@ -446,9 +533,11 @@ export default function TabNavigator({ navigation }) {
                 </View>
               }
             />
-          </Pressable>
-        </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
+
+      <LoadingOverlay visible={loadingDeleteNotifications} />
     </>
   );
 }
@@ -480,6 +569,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
   bottomSheet: {
     width: '100%',
     maxHeight: '72%',
@@ -496,6 +588,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  cleanButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cleanButtonFixed: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
   profileCardTab: {
     width: 84,

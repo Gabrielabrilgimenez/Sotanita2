@@ -51,10 +51,15 @@ export default function NotificationsScreen({ navigation }) {
           const mapped = filtered.map((item) => ({
             id: item.id,
             user: String(item.actorUsername || item.actorUserId || 'Usuario').split('@')[0],
+            actorUsername: item.actorUsername,
             action: 'le ha dado me gusta a tu video',
             videoId: item.videoId,
             videoTitle: item.videoTitle || '',
             time: formatRelativeTime(item.createdAt),
+            actorProfileImageUrl: item.actorProfileImageUrl,
+            actorTeamName: item.actorTeamName,
+            actorTeamImageUrl: item.actorTeamImageUrl,
+            actorFrameImageId: item.actorFrameImageId,
           }));
           setItems(mapped);
           await markNotificationsRead(currentUserEmail);

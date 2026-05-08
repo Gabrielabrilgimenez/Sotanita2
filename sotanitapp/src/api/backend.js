@@ -245,3 +245,15 @@ export async function markNotificationsRead(idUsuario) {
 
   return parseResponse(response);
 }
+
+export async function deleteAllNotifications(idUsuario) {
+  const response = await fetch(buildApiUrl('/api/notificaciones'), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ id_usuario: idUsuario }),
+  });
+
+  return parseResponse(response);
+}

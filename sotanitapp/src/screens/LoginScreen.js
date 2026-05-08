@@ -8,6 +8,7 @@ import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
 import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
@@ -98,6 +99,7 @@ export default function LoginScreen({ navigation }) {
           </Pressable>
         </View>
       </ScrollView>
+      <LoadingOverlay visible={loggingIn} />
     </ScreenGradient>
   );
 }
