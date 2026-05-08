@@ -8,6 +8,30 @@ import LoadingOverlay from '../components/LoadingOverlay';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 
+const formatTime = (ms) => {
+  if (!ms || ms < 0) return '0:00';
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
+
+const normalizeTeamData = (value) => {
+  const source = value?.teamDoc && typeof value.teamDoc === 'object' ? value.teamDoc : value;
+  if (!source || typeof source !== 'object') {
+    return null;
+  }
+
+  return {
+    ...source,
+    escudoUrl: source.teamEscudoUrl || source.escudoUrl || source.teamEscudo || source.crest || source.logoUrl || source.imageUrl || null,
+    name: source.teamName || source.name || source.Name || source.title || source.nombre || source.team || '',
+    lastTitle: source.lastTitle || source.last_title || source.lastTitleWon || source.ultimoTitulo || source.tituloUltimo || '',
+    year: source.year || source.founded || source.lastYear || source.foundationYear || source.anio || source.ano || source.foundation || '',
+    stadium: source.stadium || source.stadio || source.stadiumName || source.estadio || source.ground || source.venue || '',
+  };
+};
+
 export default function ForoEquipo({ route, navigation }) {
   const { teamId } = route.params || {};
   const { user, isLoggedIn } = useAuth();
@@ -25,22 +49,17 @@ export default function ForoEquipo({ route, navigation }) {
   const mediaStreamRef = useRef(null);
   const mediaChunksRef = useRef([]);
   const [showLoadingBack, setShowLoadingBack] = useState(false);
+  const [activeAudioId, setActiveAudioId] = useState(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [audioPositionMs, setAudioPositionMs] = useState(0);
+  const [audioDurationMs, setAudioDurationMs] = useState(0);
+  const audioRef = useRef(null);
 
   const fetchTeam = useCallback(async () => {
     if (!teamId) return;
     try {
       const t = await getTeamById(teamId);
-      // normalize team fields to support different backend shapes
-      const normalized = t
-        ? {
-            ...t,
-            escudoUrl: t.teamEscudoUrl || t.escudoUrl || t.teamEscudo || t.crest || t.imageUrl || null,
-            name: t.teamName || t.name || t.title || t.nombre || '',
-            lastTitle: t.lastTitle || t.last_title || t.lastTitleWon || '',
-            year: t.year || t.founded || t.lastYear || '',
-            stadium: t.stadium || t.stadio || t.stadiumName || '',
-          }
-        : null;
+      const normalized = normalizeTeamData(t);
       setTeam(normalized);
     } catch (err) {
       console.error('Error cargando equipo foro', err.message);
@@ -245,6 +264,54 @@ export default function ForoEquipo({ route, navigation }) {
     }
   }, [teamId, isLoggedIn, user, isUploadingAudio, isRecording]);
 
+  const handleToggleAudio = useCallback(async (message) => {
+    const audioUrl = message?.audioUrl || message?.audio_url;
+    if (!audioUrl || audioUrl === 'pending') {
+      Alert.alert('Audio no disponible', 'Este mensaje aun no tiene audio.');
+      return;
+    }
+
+    try {
+      if (activeAudioId === message.id && audioRef.current) {
+        const status = await audioRef.current.getStatusAsync();
+        if (status.isPlaying) {
+          await audioRef.current.pauseAsync();
+          setIsAudioPlaying(false);
+        } else {
+          await audioRef.current.playAsync();
+          setIsAudioPlaying(true);
+        }
+        return;
+      }
+
+      if (audioRef.current) {
+        await audioRef.current.unloadAsync();
+        audioRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true },
+        (status) => {
+          if (!status.isLoaded) return;
+          setAudioPositionMs(status.positionMillis || 0);
+          setAudioDurationMs(status.durationMillis || 0);
+          setIsAudioPlaying(Boolean(status.isPlaying));
+          if (status.didJustFinish) {
+            setIsAudioPlaying(false);
+            setAudioPositionMs(0);
+          }
+        }
+      );
+
+      audioRef.current = sound;
+      setActiveAudioId(message.id);
+      setIsAudioPlaying(true);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo reproducir el audio.');
+    }
+  }, [activeAudioId]);
+
   const renderItem = ({ item }) => {
     const isMine = String(item.user || '').trim().toLowerCase() === String(user?.email || user?.id || '').trim().toLowerCase();
     const containerStyle = isMine ? styles.messageRight : styles.messageLeft;
@@ -253,9 +320,27 @@ export default function ForoEquipo({ route, navigation }) {
     return (
       <View style={[containerStyle]}>
         <Text style={{ color: colors.textMuted, marginBottom: 4 }}>{item.user}</Text>
-        <View style={[styles.bubble, bubbleStyle]}>
-          <Text style={{ color: isMine ? colors.white : colors.text }}>{item.type === 'text' ? item.text : 'Audio'}</Text>
-        </View>
+        {item.type === 'audio' ? (
+          <Pressable
+            style={[styles.audioBubble, bubbleStyle]}
+            onPress={() => handleToggleAudio(item)}
+          >
+            <Ionicons
+              name={activeAudioId === item.id && isAudioPlaying ? 'pause' : 'play'}
+              size={16}
+              color={isMine ? colors.white : colors.text}
+            />
+            <Text style={{ color: isMine ? colors.white : colors.text, marginLeft: 8, fontSize: 12 }}>
+              {activeAudioId === item.id
+                ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
+                : 'Audio'}
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={[styles.bubble, bubbleStyle]}>
+            <Text style={{ color: isMine ? colors.white : colors.text, fontSize: 13 }}>{item.text}</Text>
+          </View>
+        )}
       </View>
     );
   };
@@ -268,10 +353,29 @@ export default function ForoEquipo({ route, navigation }) {
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
         {team ? (
           <View style={styles.headerInner}>
-            <Image source={team.escudoUrl ? { uri: team.escudoUrl } : require('../../assets/perfil/teamChange_light.png')} style={styles.crest} />
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={{ fontFamily: typography.families.nougat, fontSize: 22 * textScale, color: colors.text }}>{team.name}</Text>
-              <Text style={{ color: colors.textMuted }}>{team.lastTitle || ''} {team.year ? `• ${team.year}` : ''} {team.stadium ? `• ${team.stadium}` : ''}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1, marginRight: 8 }}>
+              <Image source={team.escudoUrl ? { uri: team.escudoUrl } : require('../../assets/perfil/teamChange_light.png')} style={styles.crest} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                {/* Fila 1: Nombre del foro */}
+                <Text style={{ fontFamily: typography.families.nougat, fontSize: 18 * textScale, color: colors.text, fontWeight: '700' }}>
+                  Foro del {team.name || teamId || 'equipo'}
+                </Text>
+                {!!team.year && (
+                  <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 4 }}>
+                    📅 Año de fundación: <Text style={{ fontWeight: '700', color: colors.textMuted }}>{team.year}</Text>
+                  </Text>
+                )}
+                {!!team.stadium && (
+                  <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                    🏟️ Estadio: <Text style={{ fontWeight: '700', color: colors.textMuted }}>{team.stadium}</Text>
+                  </Text>
+                )}
+                {!!team.lastTitle && (
+                  <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                    🏆 Último título: <Text style={{ fontWeight: '700', color: colors.textMuted }}>{team.lastTitle}</Text>
+                  </Text>
+                )}
+              </View>
             </View>
 
             <Pressable
@@ -284,7 +388,7 @@ export default function ForoEquipo({ route, navigation }) {
                   navigation.navigate('MainTabs', { screen: 'Profile' });
                 }, 1000);
               }}
-              style={{ padding: 8 }}
+              style={{ padding: 8, alignSelf: 'flex-start' }}
             >
               <Ionicons name="arrow-back" size={22} color={colors.primary} />
             </Pressable>
@@ -328,12 +432,13 @@ export default function ForoEquipo({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { padding: 12, borderBottomWidth: 1 },
-  headerInner: { flexDirection: 'row', alignItems: 'center' },
-  crest: { width: 64, height: 64, borderRadius: 8 },
+  headerInner: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  crest: { width: 72, height: 72, borderRadius: 10 },
   composer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', padding: 8, borderTopWidth: 1 },
   input: { flex: 1, minHeight: 40, maxHeight: 120, padding: 8, borderRadius: 8, backgroundColor: 'transparent' },
   sendBtn: { padding: 8, marginLeft: 8 },
-  messageLeft: { alignSelf: 'flex-start', marginVertical: 6, maxWidth: '80%' },
-  messageRight: { alignSelf: 'flex-end', marginVertical: 6, maxWidth: '80%' },
+  messageLeft: { alignSelf: 'flex-start', marginVertical: 6, maxWidth: '80%', marginHorizontal: 12 },
+  messageRight: { alignSelf: 'flex-end', marginVertical: 6, maxWidth: '80%', marginHorizontal: 12 },
   bubble: { padding: 10, borderRadius: 10 },
+  audioBubble: { padding: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center' },
 });

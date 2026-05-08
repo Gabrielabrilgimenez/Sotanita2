@@ -913,20 +913,36 @@ app.get('/api/equipos/:id', async (req, res) => {
         const equiposDoc = await findEquiposById(id);
         const fondoDoc = await findFondoById(id);
 
-        const teamDoc = fondoDoc || equiposDoc;
+        const teamDoc = {
+            ...(equiposDoc || {}),
+            ...(fondoDoc || {}),
+        };
 
-        if (!teamDoc) {
+        if (!equiposDoc && !fondoDoc) {
             return res.status(404).json({ message: 'Equipo no encontrado' });
         }
 
-        const escudoUrl = normalizeImageUrl(equiposDoc?.escudoUrl ?? fondoDoc?.escudoUrl ?? equiposDoc?.imageUrl ?? fondoDoc?.imageUrl);
-        const imageUrl = normalizeImageUrl(fondoDoc?.imageUrl ?? equiposDoc?.imageUrl ?? fondoDoc?.escudoUrl ?? equiposDoc?.escudoUrl);
+        const escudoUrl = normalizeImageUrl(
+            equiposDoc?.escudoUrl ?? equiposDoc?.imageUrl ?? fondoDoc?.escudoUrl ?? fondoDoc?.imageUrl
+        );
+        const imageUrl = normalizeImageUrl(
+            fondoDoc?.imageUrl ?? fondoDoc?.escudoUrl ?? equiposDoc?.imageUrl ?? equiposDoc?.escudoUrl
+        );
+        const name = teamDoc.name ?? teamDoc.Name ?? teamDoc.teamName ?? teamDoc.title ?? teamDoc.nombre ?? equiposDoc?.name ?? equiposDoc?.Name ?? fondoDoc?.name ?? fondoDoc?.Name ?? null;
+        const year = teamDoc.year ?? teamDoc.founded ?? teamDoc.lastYear ?? teamDoc.foundationYear ?? teamDoc.anio ?? teamDoc.ano ?? equiposDoc?.year ?? equiposDoc?.founded ?? fondoDoc?.year ?? fondoDoc?.founded ?? null;
+        const stadium = teamDoc.stadium ?? teamDoc.stadio ?? teamDoc.stadiumName ?? teamDoc.estadio ?? equiposDoc?.stadium ?? equiposDoc?.stadiumName ?? fondoDoc?.stadium ?? fondoDoc?.stadiumName ?? null;
+        const lastTitle = teamDoc.lastTitle ?? teamDoc.last_title ?? teamDoc.lastTitleWon ?? teamDoc.ultimoTitulo ?? teamDoc.tituloUltimo ?? equiposDoc?.lastTitle ?? equiposDoc?.last_title ?? fondoDoc?.lastTitle ?? fondoDoc?.last_title ?? null;
 
         return res.json({
-            id: extractDocId(teamDoc),
-            name: teamDoc.name ?? teamDoc.Name ?? null,
+            ...equiposDoc,
+            ...fondoDoc,
+            id: extractDocId(teamDoc) || extractDocId(equiposDoc) || extractDocId(fondoDoc),
+            name,
             escudoUrl,
             imageUrl,
+            year,
+            stadium,
+            lastTitle,
         });
     } catch (err) {
         console.error('❌ Error en GET /api/equipos/:id', err.message);
