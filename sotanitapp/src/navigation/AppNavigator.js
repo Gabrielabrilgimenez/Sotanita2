@@ -32,6 +32,7 @@ export default function AppNavigator() {
           <Stack.Screen name="Search" component={SearchScreen} />
           <Stack.Screen name="MyVideos" component={MyVideosScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="ForoEquipo" component={require('../screens/ForoEquipo').default} />
         </>
       ) : (
         <Stack.Screen name="Auth" component={AuthNavigator} />

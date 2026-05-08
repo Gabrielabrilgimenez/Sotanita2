@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllVideos, getPositions, getTeamNames } from '../api/backend';
+import { getAllVideos, getPositions, getTeamById, getTeamNames } from '../api/backend';
 import ScreenGradient from '../components/ScreenGradient';
 import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
@@ -37,6 +37,14 @@ function arrayBufferToBase64(arrayBuffer) {
   throw new Error('No se pudo convertir la imagen a base64');
 }
 
+function normalizeRemoteUri(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('file:')) return raw;
+  return null;
+}
+
 export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const { user, isLoggedIn, guestMode, logout, updateUser } = useAuth();
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
@@ -54,6 +62,11 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [savingChanges, setSavingChanges] = useState(false);
   const [editError, setEditError] = useState('');
   const [positionsError, setPositionsError] = useState('');
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [teamEscudoUrl, setTeamEscudoUrl] = useState('');
+  const [teamAnimationActive, setTeamAnimationActive] = useState(false);
+  const [showLoadingGifOverlay, setShowLoadingGifOverlay] = useState(false);
+  const [showCrestOverlay, setShowCrestOverlay] = useState(false);
   const [uploadedVideos, setUploadedVideos] = useState([]);
   const [likedVideos, setLikedVideos] = useState([]);
   const [photoLoading, setPhotoLoading] = useState(false);
@@ -68,6 +81,15 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const teamColumnHighlight = highContrast ? `${colors.primary}22` : darkMode ? `${colors.white}08` : `${colors.black}08`;
   const positionLabel = tempValue || 'Selecciona una posicion';
   const teamLabel = tempValue || 'Selecciona un equipo';
+  const teamChangeIcon = highContrast
+    ? require('../../assets/perfil/teamChange_contrast.png')
+    : darkMode
+      ? require('../../assets/perfil/teamChange_dark.png')
+      : require('../../assets/perfil/teamChange_light.png');
+  const teamImageSource = useMemo(() => {
+    const normalizedTeamImage = normalizeRemoteUri(teamEscudoUrl || user?.teamImageUrl);
+    return normalizedTeamImage ? { uri: normalizedTeamImage } : null;
+  }, [teamEscudoUrl, user?.teamImageUrl]);
   const isBlocking = photoLoading || savingChanges;
 
   useResetScrollOnFocus(scrollRef);
@@ -83,6 +105,35 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       email: '',
     };
   }, [isLoggedIn, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTeamEscudo = async () => {
+      if (!isLoggedIn || !user?.teamId) {
+        setTeamEscudoUrl('');
+        return;
+      }
+
+      try {
+        const team = await getTeamById(user.teamId);
+        if (!cancelled) {
+          setTeamEscudoUrl(team?.escudoUrl || team?.imageUrl || '');
+        }
+      } catch (error) {
+        console.error('Error cargando escudo del equipo:', error);
+        if (!cancelled) {
+          setTeamEscudoUrl(user?.teamImageUrl || '');
+        }
+      }
+    };
+
+    loadTeamEscudo();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, user?.teamId, user?.teamImageUrl]);
 
   const openEdit = async (field) => {
     setEditError('');
@@ -206,6 +257,41 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       return;
     }
     setShowPhotoModal(true);
+  };
+
+  const handleViewTeamPress = () => {
+    if (!isLoggedIn) {
+      Alert.alert('Acceso restringido', 'Debes iniciar sesion para ver el foro del equipo.');
+      return;
+    }
+
+    if (!user?.teamId) {
+      Alert.alert('Sin equipo', 'No tienes un equipo asignado.');
+      return;
+    }
+
+    // Start the intentional animation: loading gif 1.5s, then crest 1s, then navigate
+    setTeamAnimationActive(true);
+    setShowLoadingGifOverlay(true);
+
+    setTimeout(() => {
+      setShowLoadingGifOverlay(false);
+      setShowCrestOverlay(true);
+
+      setTimeout(() => {
+        setShowCrestOverlay(false);
+        setTeamAnimationActive(false);
+        // Navigate to ForoEquipo
+        navigation.navigate('ForoEquipo', { teamId: user.teamId });
+      }, 1000);
+    }, 1500);
+  };
+
+  const handleChangeTeamPress = () => {
+    if (!isLoggedIn) {
+      return;
+    }
+    openEdit('team');
   };
 
   const saveEdit = async () => {
@@ -347,6 +433,66 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               ))}
             </View>
 
+            <View style={[styles.teamActionsWrap, { paddingHorizontal: spacing.xl, marginTop: spacing.md }]}> 
+              <Pressable
+                onPress={handleViewTeamPress}
+                style={({ pressed }) => [
+                  styles.squareAction,
+                  {
+                    backgroundColor: darkMode ? colors.surfaceElevated : colors.surface,
+                    borderColor: highContrast ? colors.primary : colors.border,
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}
+              >
+                <View style={styles.squareActionIconWrap}>
+                  {teamImageSource ? (
+                    <Image source={teamImageSource} style={styles.teamCrest} resizeMode="contain" />
+                  ) : (
+                    <Ionicons name="shield-outline" size={40} color={colors.primary} />
+                  )}
+                </View>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontFamily: typography.families.nougat,
+                    fontSize: (typography.sizes.md + 8 )* textScale,
+                    textAlign: 'center',
+                  }}
+                  numberOfLines={2}
+                >
+                  Ver tu equipo
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleChangeTeamPress}
+                style={({ pressed }) => [
+                  styles.squareAction,
+                  {
+                    backgroundColor: darkMode ? colors.surfaceElevated : colors.surface,
+                    borderColor: highContrast ? colors.primary : colors.border,
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}
+              >
+                <View style={styles.squareActionIconWrap}>
+                  <Image source={teamChangeIcon} style={styles.teamChangeIcon} resizeMode="contain" />
+                </View>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontFamily: typography.families.nougat,
+                    fontSize: (typography.sizes.md + 8)* textScale,
+                    textAlign: 'center',
+                  }}
+                  numberOfLines={2}
+                >
+                  Cambiar de equipo
+                </Text>
+              </Pressable>
+            </View>
+
             <Pressable
               onPress={logout}
               style={[styles.logoutButton, { backgroundColor: `${colors.danger}22`, borderColor: `${colors.danger}77`, marginTop: spacing.lg }]}
@@ -472,6 +618,21 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               <AppButton title="Guardar" onPress={saveEdit} loading={savingChanges} style={{ flex: 1 }} />
             </View>
           </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Team animation overlays: loading gif then crest */}
+      <LoadingOverlay visible={showLoadingGifOverlay} />
+
+      <Modal visible={showCrestOverlay} transparent animationType="fade" statusBarTranslucent>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => {}}>
+          <View style={[styles.crestOverlayCard, { backgroundColor: 'transparent' }]}> 
+            {teamEscudoUrl ? (
+              <Image source={{ uri: teamEscudoUrl }} style={styles.crestBig} resizeMode="contain" />
+            ) : (
+              <Ionicons name="shield-outline" size={120} color={colors.primary} />
+            )}
+          </View>
         </Pressable>
       </Modal>
 
@@ -606,6 +767,39 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={showTeamModal} transparent animationType="fade" onRequestClose={() => setShowTeamModal(false)}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => setShowTeamModal(false)}>
+          <Pressable style={[styles.teamModalCard, { backgroundColor: colors.surface }]} onPress={() => {}}>
+            <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, marginBottom: spacing.sm }}>
+              Tu equipo actual
+            </Text>
+            <View style={[styles.teamModalCrestWrap, { borderColor: colors.border, backgroundColor: darkMode ? colors.surfaceElevated : `${colors.primary}10` }]}> 
+              {teamImageSource ? (
+                <Image source={teamImageSource} style={styles.teamModalCrest} resizeMode="contain" />
+              ) : (
+                <Ionicons name="shield-outline" size={88} color={colors.primary} />
+              )}
+            </View>
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: typography.sizes.xl * textScale,
+                fontFamily: typography.families.nougat,
+                textAlign: 'center',
+                marginBottom: spacing.xs,
+              }}
+              numberOfLines={2}
+            >
+              {profile.team || 'Sin equipo'}
+            </Text>
+            <Text style={{ color: colors.textMuted, textAlign: 'center', marginBottom: spacing.md }}>
+              Escudo vinculado al perfil actual.
+            </Text>
+            <AppButton title="Cerrar" onPress={() => setShowTeamModal(false)} style={{ alignSelf: 'stretch' }} />
+          </Pressable>
+        </Pressable>
+      </Modal>
       <LoadingOverlay visible={isBlocking} />
     </ScreenGradient>
   );
@@ -675,6 +869,53 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 18,
     padding: 16,
+  },
+  teamActionsWrap: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  squareAction: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  squareActionIconWrap: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamCrest: {
+    width: '100%',
+    height: '100%',
+  },
+  teamChangeIcon: {
+    width: '100%',
+    height: '100%',
+  },
+  teamModalCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 18,
+  },
+  teamModalCrestWrap: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  teamModalCrest: {
+    width: '82%',
+    height: '82%',
   },
   selectWrap: {
     borderWidth: 0,
@@ -746,5 +987,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  crestOverlayCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  crestBig: {
+    width: 180,
+    height: 180,
+    alignSelf: 'center',
   },
 });

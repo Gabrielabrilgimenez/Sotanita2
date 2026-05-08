@@ -361,6 +361,55 @@ app.post('/api/videos/:id/comments', async (req, res) => {
     }
 });
 
+// --- Foros (team forums) ---
+app.get('/api/foros/:teamId', async (req, res) => {
+    try {
+        const { teamId } = req.params;
+        if (!teamId) return res.status(400).json({ message: 'teamId es obligatorio' });
+
+        // Return messages sorted ascending (oldest first) so newest appear at the bottom in the chat
+        const msgs = await db.collection('foros')
+            .find({ team: teamId })
+            .sort({ date: 1 })
+            .toArray();
+
+        const mapped = msgs.map((m) => ({ ...m, id: m._id.toString(), _id: undefined }));
+        return res.json(mapped);
+    } catch (err) {
+        console.error('Error GET /api/foros/:teamId', err.message);
+        return res.status(500).json({ message: 'Error obteniendo foro' });
+    }
+});
+
+app.post('/api/foros/:teamId', async (req, res) => {
+    try {
+        const { teamId } = req.params;
+        const { user, type, text, audioUrl } = req.body || {};
+
+        if (!teamId) return res.status(400).json({ message: 'teamId es obligatorio' });
+        if (!user) return res.status(400).json({ message: 'user es obligatorio' });
+        if (!type || (type !== 'text' && type !== 'audio')) return res.status(400).json({ message: 'type invalido' });
+        if (type === 'text' && (!text || String(text).trim().length === 0)) return res.status(400).json({ message: 'text es obligatorio para type=text' });
+        if (type === 'text' && String(text).length > 500) return res.status(400).json({ message: 'text supera 500 caracteres' });
+
+        const doc = {
+            user,
+            team: teamId,
+            type,
+            audioUrl: type === 'audio' ? (audioUrl || null) : null,
+            text: type === 'text' ? String(text).trim() : null,
+            date: new Date(),
+        };
+
+        const result = await db.collection('foros').insertOne(doc);
+        const created = await db.collection('foros').findOne({ _id: result.insertedId });
+        return res.status(201).json({ ...created, id: created._id.toString(), _id: undefined });
+    } catch (err) {
+        console.error('Error POST /api/foros/:teamId', err.message);
+        return res.status(500).json({ message: 'Error creando mensaje de foro' });
+    }
+});
+
 app.delete('/api/comments/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -745,6 +794,23 @@ function normalizeImageUrl(value) {
     return raw;
 }
 
+// Helpers: fondo contains background images, equipos contains escudos.
+async function findFondoById(teamId) {
+    return db.collection('fondo').findOne(buildIdFilter(teamId));
+}
+
+async function findEquiposById(teamId) {
+    return db.collection('equipos').findOne(buildIdFilter(teamId));
+}
+
+async function findFondoByName(name) {
+    return db.collection('fondo').findOne({ $or: [{ name: buildNameRegex(name) }, { Name: buildNameRegex(name) }] });
+}
+
+async function findEquiposByName(name) {
+    return db.collection('equipos').findOne({ $or: [{ name: buildNameRegex(name) }, { Name: buildNameRegex(name) }] });
+}
+
 async function uploadProfileImageUrl(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return null;
@@ -759,16 +825,23 @@ async function uploadProfileImageUrl(value) {
 }
 
 async function resolveCardData(teamId, frameId) {
-    const [teamDoc, frameDoc] = await Promise.all([
-        teamId ? db.collection('fondo').findOne(buildIdFilter(teamId)) : Promise.resolve(null),
+    // Prefer 'fondo' for background and 'equipos' for escudo
+    const [fondoDoc, equiposDoc, frameDoc] = await Promise.all([
+        teamId ? findFondoById(teamId) : Promise.resolve(null),
+        teamId ? findEquiposById(teamId) : Promise.resolve(null),
         frameId ? db.collection('marco').findOne(buildIdFilter(frameId)) : Promise.resolve(null),
     ]);
+
+    const teamDoc = fondoDoc || equiposDoc || null;
+    const teamImageUrl = fondoDoc ? normalizeImageUrl(fondoDoc.imageUrl ?? fondoDoc.escudoUrl) : (equiposDoc ? normalizeImageUrl(equiposDoc.imageUrl ?? equiposDoc.escudoUrl) : null);
+    const teamEscudoUrl = equiposDoc ? normalizeImageUrl(equiposDoc.escudoUrl ?? equiposDoc.imageUrl) : (fondoDoc ? normalizeImageUrl(fondoDoc.escudoUrl ?? fondoDoc.imageUrl) : null);
 
     return {
         teamDoc,
         frameDoc,
         teamName: teamDoc ? (teamDoc.name ?? teamDoc.Name ?? null) : null,
-        teamImageUrl: teamDoc ? normalizeImageUrl(teamDoc.imageUrl) : null,
+        teamImageUrl,
+        teamEscudoUrl,
         frameImageId: frameDoc ? normalizeImageUrl(frameDoc.imageId) : null,
         resolvedTeamId: teamDoc ? extractDocId(teamDoc) : teamId,
         resolvedFrameId: frameDoc ? extractDocId(frameDoc) : frameId,
@@ -777,10 +850,12 @@ async function resolveCardData(teamId, frameId) {
 
 async function handleGetNombresEquipos(req, res) {
     try {
-        const rows = await db
-            .collection('fondo')
-            .find({}, { projection: { _id: 0, name: 1, Name: 1 } })
-            .toArray();
+        const rows = [];
+
+        const fondoDocs = await db.collection('fondo').find({}, { projection: { _id: 0, name: 1, Name: 1 } }).toArray();
+        const equiposDocs = await db.collection('equipos').find({}, { projection: { _id: 0, name: 1, Name: 1 } }).toArray();
+
+        rows.push(...fondoDocs, ...equiposDocs);
 
         const nombres = [...new Set(
             rows
@@ -806,9 +881,10 @@ async function handleGetTeamIdByName(req, res) {
     }
 
     try {
-        const teamDoc = await db.collection('fondo').findOne({
-            $or: [{ name: buildNameRegex(name) }, { Name: buildNameRegex(name) }],
-        });
+        let teamDoc = await findFondoByName(name);
+        if (!teamDoc) {
+            teamDoc = await findEquiposByName(name);
+        }
 
         if (!teamDoc) {
             return res.status(404).json({ message: 'Equipo no encontrado' });
@@ -825,6 +901,38 @@ async function handleGetTeamIdByName(req, res) {
         return res.status(500).json({ message: 'Error obteniendo teamId' });
     }
 }
+
+app.get('/api/equipos/:id', async (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        return res.status(400).json({ message: 'El id del equipo es obligatorio' });
+    }
+
+    try {
+        const equiposDoc = await findEquiposById(id);
+        const fondoDoc = await findFondoById(id);
+
+        const teamDoc = fondoDoc || equiposDoc;
+
+        if (!teamDoc) {
+            return res.status(404).json({ message: 'Equipo no encontrado' });
+        }
+
+        const escudoUrl = normalizeImageUrl(equiposDoc?.escudoUrl ?? fondoDoc?.escudoUrl ?? equiposDoc?.imageUrl ?? fondoDoc?.imageUrl);
+        const imageUrl = normalizeImageUrl(fondoDoc?.imageUrl ?? equiposDoc?.imageUrl ?? fondoDoc?.escudoUrl ?? equiposDoc?.escudoUrl);
+
+        return res.json({
+            id: extractDocId(teamDoc),
+            name: teamDoc.name ?? teamDoc.Name ?? null,
+            escudoUrl,
+            imageUrl,
+        });
+    } catch (err) {
+        console.error('❌ Error en GET /api/equipos/:id', err.message);
+        return res.status(500).json({ message: 'Error obteniendo equipo' });
+    }
+});
 
 app.get('/api/equipos/id', handleGetTeamIdByName);
 app.get('/api/equipo/idPorNombre', handleGetTeamIdByName);

@@ -35,6 +35,12 @@ export async function getTeamIdByName(name) {
   return data.teamId;
 }
 
+export async function getTeamById(teamId) {
+  const encodedId = encodeURIComponent(teamId);
+  const response = await fetch(buildApiUrl(`/api/equipos/${encodedId}`));
+  return parseResponse(response);
+}
+
 export async function createUser(payload) {
   const response = await fetch(buildApiUrl('/api/usuarios'), {
     method: 'POST',
@@ -185,6 +191,23 @@ export async function uploadCommentAudio(formData) {
   const response = await fetch(buildApiUrl('/api/uploads/audio'), {
     method: 'POST',
     body: formData,
+  });
+
+  return parseResponse(response);
+}
+
+export async function getForumMessages(teamId) {
+  const encoded = encodeURIComponent(teamId);
+  const response = await fetch(buildApiUrl(`/api/foros/${encoded}`));
+  return parseResponse(response);
+}
+
+export async function postForumMessage(teamId, payload) {
+  const encoded = encodeURIComponent(teamId);
+  const response = await fetch(buildApiUrl(`/api/foros/${encoded}`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 
   return parseResponse(response);
