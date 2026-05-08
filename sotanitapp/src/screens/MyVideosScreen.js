@@ -153,6 +153,8 @@ export default function MyVideosScreen({ navigation, route }) {
         ? 'video'
         : 'image');
   const isCarousel = ['carousel', 'carrusel'].includes(mediaType) || mediaUrls.length > 1;
+  const uploaderCard = activeVideo?.uploaderCard || null;
+  const uploaderName = uploaderCard?.username || (activeVideo?.id_usuario ? String(activeVideo.id_usuario).split('@')[0] : 'usuario');
   const canCycleVideos = videos.length > 1;
   const isLikedView = sourceTab === 'liked';
   const canDeleteVideo = sourceTab === 'uploaded' && Boolean(activeVideo);
@@ -298,7 +300,43 @@ export default function MyVideosScreen({ navigation, route }) {
                 isMuted={false}
                 volume={1.0}
               />
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.35)']} style={StyleSheet.absoluteFillObject} />
+              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
+              <View style={styles.infoWrapper}>
+                {uploaderCard ? (
+                  <View style={styles.uploaderCardWrap}>
+                    <FifaCard
+                      username={uploaderCard.username || uploaderName}
+                      position={uploaderCard.position}
+                      team={uploaderCard.teamName}
+                      backgroundUrl={uploaderCard.teamImageUrl}
+                      frameUrl={uploaderCard.frameImageId}
+                      photoUrl={uploaderCard.profileImageUrl}
+                      size="small"
+                      disableShadow
+                    />
+                  </View>
+                ) : null}
+                <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+                  {activeVideo?.user || uploaderName}
+                </Text>
+                {activeVideo?.title ? (
+                  <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}> 
+                    {activeVideo.title}
+                  </Text>
+                ) : null}
+                {activeVideo?.description ? (
+                  <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}> 
+                    {activeVideo.description}
+                  </Text>
+                ) : null}
+                {activeVideo?.category ? (
+                  <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}> 
+                    <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}> 
+                      {activeVideo.category}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             </Pressable>
           ) : isCarousel ? (
             <View
@@ -347,6 +385,42 @@ export default function MyVideosScreen({ navigation, route }) {
                 style={StyleSheet.absoluteFillObject}
                 pointerEvents="none"
               />
+              <View style={styles.infoWrapper}>
+                {uploaderCard ? (
+                  <View style={styles.uploaderCardWrap}>
+                    <FifaCard
+                      username={uploaderCard.username || uploaderName}
+                      position={uploaderCard.position}
+                      team={uploaderCard.teamName}
+                      backgroundUrl={uploaderCard.teamImageUrl}
+                      frameUrl={uploaderCard.frameImageId}
+                      photoUrl={uploaderCard.profileImageUrl}
+                      size="small"
+                      disableShadow
+                    />
+                  </View>
+                ) : null}
+                <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+                  {activeVideo?.user || uploaderName}
+                </Text>
+                {activeVideo?.title ? (
+                  <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}> 
+                    {activeVideo.title}
+                  </Text>
+                ) : null}
+                {activeVideo?.description ? (
+                  <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}> 
+                    {activeVideo.description}
+                  </Text>
+                ) : null}
+                {activeVideo?.category ? (
+                  <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}> 
+                    <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}> 
+                      {activeVideo.category}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
           ) : (
             <Pressable
@@ -363,22 +437,48 @@ export default function MyVideosScreen({ navigation, route }) {
                 style={StyleSheet.absoluteFillObject}
                 resizeMode="cover"
               />
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.35)']} style={StyleSheet.absoluteFillObject} />
+              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
+              <View style={styles.infoWrapper}>
+                {uploaderCard ? (
+                  <View style={styles.uploaderCardWrap}>
+                    <FifaCard
+                      username={uploaderCard.username || uploaderName}
+                      position={uploaderCard.position}
+                      team={uploaderCard.teamName}
+                      backgroundUrl={uploaderCard.teamImageUrl}
+                      frameUrl={uploaderCard.frameImageId}
+                      photoUrl={uploaderCard.profileImageUrl}
+                      size="small"
+                      disableShadow
+                    />
+                  </View>
+                ) : null}
+                <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+                  {activeVideo?.user || uploaderName}
+                </Text>
+                {activeVideo?.title ? (
+                  <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}> 
+                    {activeVideo.title}
+                  </Text>
+                ) : null}
+                {activeVideo?.description ? (
+                  <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}> 
+                    {activeVideo.description}
+                  </Text>
+                ) : null}
+                {activeVideo?.category ? (
+                  <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}> 
+                    <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}> 
+                      {activeVideo.category}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             </Pressable>
           )
         )}
 
         <View style={[styles.sideActions, { right: spacing.md }]}> 
-          <FifaCard
-            size="small"
-            username={user?.username || activeVideo?.user || 'usuario'}
-            team={user?.team || 'Sin equipo'}
-            position={user?.position || '---'}
-            photoUrl={user?.profileImageUrl}
-            backgroundUrl={user?.teamImageUrl}
-            frameUrl={user?.frameImageId}
-          />
-
           <Pressable onPress={() => setLiked((prev) => !prev)} style={styles.actionWrap} disabled={!activeVideo}>
             <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}> 
               <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? colors.danger : colors.white} />
@@ -565,6 +665,44 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  infoWrapper: {
+    position: 'absolute',
+    left: 16,
+    right: 90,
+    bottom: 24,
+    zIndex: 4,
+  },
+  title: {
+    marginBottom: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  description: {
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  descriptionText: {
+    marginTop: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  uploaderCardWrap: {
+    marginBottom: 6,
+  },
+  categoryBadge: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  categoryText: {
+    textTransform: 'uppercase',
   },
   dot: {
     height: 6,
