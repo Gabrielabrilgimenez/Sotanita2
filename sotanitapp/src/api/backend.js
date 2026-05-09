@@ -28,6 +28,12 @@ export async function getTeamNames() {
   return data.nombresEquipos || [];
 }
 
+export async function getTeamsListWithEscudo() {
+  const response = await fetch(buildApiUrl('/api/equipos/lista/todos'));
+  const data = await parseResponse(response);
+  return data.equipos || [];
+}
+
 export async function getTeamIdByName(name) {
   const encodedName = encodeURIComponent(name);
   const response = await fetch(buildApiUrl(`/api/equipo/idPorNombre?name=${encodedName}`));
@@ -227,6 +233,19 @@ export async function deleteVideoComment(commentId, idUsuario) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ id_usuario: idUsuario }),
+  });
+
+  return parseResponse(response);
+}
+
+export async function deleteForumMessage(teamId, messageId, user) {
+  const encoded = encodeURIComponent(teamId);
+  const response = await fetch(buildApiUrl(`/api/foros/${encoded}/${messageId}?user=${encodeURIComponent(user || '')}`), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user }),
   });
 
   return parseResponse(response);

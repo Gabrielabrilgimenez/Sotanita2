@@ -1,5 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import { useAppTheme } from '../hooks/useAppTheme';
+import StrokeText from './StrokeText';
 
 export default function AppButton({
   title,
@@ -9,6 +10,9 @@ export default function AppButton({
   loading = false,
   style,
   textStyle,
+  strokeText = false,
+  strokeColor = 'black',
+  strokeWidth = 1,
 }) {
   const { colors, spacing, typography, textScale } = useAppTheme();
 
@@ -49,6 +53,21 @@ export default function AppButton({
     >
       {loading ? (
         <ActivityIndicator color={variant === 'primary' ? colors.black : colors.text} />
+      ) : strokeText ? (
+        <StrokeText
+          style={[
+            {
+              fontSize: typography.sizes.md * textScale,
+              fontWeight: typography.weights.bold,
+            },
+            variants[variant].label,
+            textStyle,
+          ]}
+          strokeColor={strokeColor}
+          strokeWidth={strokeWidth}
+        >
+          {title}
+        </StrokeText>
       ) : (
         <Text
           style={[

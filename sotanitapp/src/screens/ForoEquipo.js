@@ -3,7 +3,7 @@ import { ScrollView, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaV
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio } from '../api/backend';
+import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../api/backend';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,6 +54,7 @@ export default function ForoEquipo({ route, navigation }) {
   const [audioPositionMs, setAudioPositionMs] = useState(0);
   const [audioDurationMs, setAudioDurationMs] = useState(0);
   const audioRef = useRef(null);
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
 
   const fetchTeam = useCallback(async () => {
     if (!teamId) return;
@@ -82,12 +83,6 @@ export default function ForoEquipo({ route, navigation }) {
     (async () => {
       await fetchTeam();
       await fetchMessages();
-      // on first load, scroll to bottom once
-      if (mounted && scrollRef.current) {
-        try {
-          scrollRef.current.scrollToEnd({ animated: false });
-        } catch (e) {}
-      }
       initialLoadedRef.current = true;
     })();
 
@@ -97,6 +92,15 @@ export default function ForoEquipo({ route, navigation }) {
       clearInterval(interval);
     };
   }, [fetchTeam, fetchMessages]);
+
+  useEffect(() => {
+    // Scroll to bottom when messages are first loaded
+    if (initialLoadedRef.current && scrollRef.current && messages.length > 0) {
+      try {
+        scrollRef.current.scrollToEnd({ animated: false });
+      } catch (e) {}
+    }
+  }, [messages]);
 
   useFocusEffect(
     useCallback(() => {
@@ -313,6 +317,27 @@ export default function ForoEquipo({ route, navigation }) {
     }
   }, [activeAudioId]);
 
+  const handleDeleteForumMessage = useCallback((message) => {
+    if (!message) return;
+    setPendingDeleteMessage(message);
+  }, []);
+
+  const confirmDeleteForumMessage = useCallback(async () => {
+    if (!pendingDeleteMessage || !teamId) {
+      setPendingDeleteMessage(null);
+      return;
+    }
+
+    try {
+      await deleteForumMessage(teamId, pendingDeleteMessage.id, user?.email || user?.username);
+      setMessages((prev) => prev.filter((m) => m.id !== pendingDeleteMessage.id));
+      setPendingDeleteMessage(null);
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo eliminar el mensaje.');
+      setPendingDeleteMessage(null);
+    }
+  }, [pendingDeleteMessage, teamId, user?.email, user?.username]);
+
   const renderItem = ({ item }) => {
     const itemEmail = String(item.userEmail || '').trim().toLowerCase();
     const itemUserKey = itemEmail || String(item.user || '').trim().toLowerCase();
@@ -320,31 +345,63 @@ export default function ForoEquipo({ route, navigation }) {
     const isMine = itemEmail ? myKeys.includes(itemEmail) : myKeys.includes(itemUserKey);
     const containerStyle = isMine ? styles.messageRight : styles.messageLeft;
     const bubbleStyle = isMine ? { backgroundColor: colors.primary, alignSelf: 'flex-end' } : { backgroundColor: colors.surfaceElevated, alignSelf: 'flex-start' };
+    const userDisplay = isMine ? 'Tú' : `@${item.user}`;
+    const userTextAlign = isMine ? 'right' : 'left';
 
     return (
       <View style={[containerStyle]}>
-        <Text style={{ color: colors.textMuted, marginBottom: 4 }}>{item.user}</Text>
-        {item.type === 'audio' ? (
-          <Pressable
-            style={[styles.audioBubble, bubbleStyle]}
-            onPress={() => handleToggleAudio(item)}
-          >
-            <Ionicons
-              name={activeAudioId === item.id && isAudioPlaying ? 'pause' : 'play'}
-              size={16}
-              color={isMine ? colors.white : colors.text}
-            />
-            <Text style={{ color: isMine ? colors.white : colors.text, marginLeft: 8, fontSize: 12 }}>
-              {activeAudioId === item.id
-                ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
-                : 'Audio'}
-            </Text>
-          </Pressable>
-        ) : (
-          <View style={[styles.bubble, bubbleStyle]}>
-            <Text style={{ color: isMine ? colors.white : colors.text, fontSize: 13 }}>{item.text}</Text>
+        <Text style={{ color: colors.textMuted, marginBottom: 4, textAlign: userTextAlign }}>{userDisplay}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: isMine ? 8 : 0 }}>
+          {isMine ? (
+            <Pressable
+              onPress={() => handleDeleteForumMessage(item)}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: colors.danger,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 2,
+              }}
+              hitSlop={8}
+            >
+              <Ionicons name="trash" size={14} color={colors.white} />
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1 }}>
+            {item.type === 'audio' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Pressable onPress={() => handleToggleAudio(item)} style={{ marginRight: 12 }}>
+                  <View style={{
+                    width: 64 * (textScale || 1),
+                    height: 64 * (textScale || 1),
+                    borderRadius: 32 * (textScale || 1),
+                    backgroundColor: bubbleStyle.backgroundColor || colors.surfaceElevated,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons
+                      name={activeAudioId === item.id && isAudioPlaying ? 'pause' : 'play'}
+                      size={32 * (textScale || 1)}
+                      color={colors.white}
+                    />
+                  </View>
+                </Pressable>
+
+                <Text style={{ color: isMine ? colors.white : colors.text, fontSize: typography.sizes.lg * (textScale || 1), fontWeight: '700' }}>
+                  {activeAudioId === item.id
+                    ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
+                    : formatTime(item.audioDurationMs || item.audio_duration_ms || 0)}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.bubble, bubbleStyle]}>
+                <Text numberOfLines={undefined} style={{ color: isMine ? colors.white : colors.text, fontSize: 13 }}>{item.text}</Text>
+              </View>
+            )}
           </View>
-        )}
+        </View>
       </View>
     );
   };
@@ -402,11 +459,35 @@ export default function ForoEquipo({ route, navigation }) {
         )}
       </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 12, paddingBottom: 80 }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 12, paddingBottom: 140 }}>
         {messages.map((m) => (
           <View key={m.id || String(m._id)}>{renderItem({ item: m })}</View>
         ))}
       </ScrollView>
+
+      {pendingDeleteMessage ? (
+        <View style={styles.deleteConfirmOverlay}>
+          <View style={[styles.deleteConfirmCard, { backgroundColor: colors.surface }]}> 
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>
+              ¿Desea borrar el mensaje?
+            </Text>
+            <View style={styles.deleteConfirmActions}>
+              <Pressable
+                style={[styles.deleteConfirmButton, { backgroundColor: colors.surfaceElevated }]}
+                onPress={() => setPendingDeleteMessage(null)}
+              >
+                <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deleteConfirmButton, { backgroundColor: colors.danger }]}
+                onPress={confirmDeleteForumMessage}
+              >
+                <Text style={{ color: colors.white, fontWeight: '700' }}>Borrar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
         <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.surface }]}> 
@@ -441,8 +522,12 @@ const styles = StyleSheet.create({
   composer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', padding: 8, borderTopWidth: 1 },
   input: { flex: 1, minHeight: 40, maxHeight: 120, padding: 8, borderRadius: 8, backgroundColor: 'transparent' },
   sendBtn: { padding: 8, marginLeft: 8 },
-  messageLeft: { alignSelf: 'flex-start', marginVertical: 6, maxWidth: '80%', marginHorizontal: 12 },
-  messageRight: { alignSelf: 'flex-end', marginVertical: 6, maxWidth: '80%', marginHorizontal: 12 },
+  messageLeft: { alignSelf: 'flex-start', marginVertical: 6, maxWidth: '75%', marginHorizontal: 12 },
+  messageRight: { alignSelf: 'flex-end', marginVertical: 6, maxWidth: '75%', marginHorizontal: 12 },
   bubble: { padding: 10, borderRadius: 10 },
   audioBubble: { padding: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center' },
+  deleteConfirmOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
+  deleteConfirmCard: { width: '80%', borderRadius: 16, padding: 16, alignItems: 'center' },
+  deleteConfirmActions: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  deleteConfirmButton: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20 },
 });

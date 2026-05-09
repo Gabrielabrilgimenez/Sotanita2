@@ -166,6 +166,7 @@ const FeedVideoItem = ({
               team={uploaderCard.teamName}
               backgroundUrl={uploaderCard.teamImageUrl}
               frameUrl={uploaderCard.frameImageId}
+              frameId={uploaderCard.frameId}
               photoUrl={uploaderCard.profileImageUrl}
               size="small"
               disableShadow
@@ -1067,7 +1068,10 @@ export default function HomeScreen({ navigation }) {
                     />
                     <View style={{ flex: 1 }}>
                       <View style={[styles.commentHeaderRow, { marginBottom: 4 }]}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>@{comment.author || comment.authorUsername}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                          @{comment.author || comment.authorUsername}
+                          {(comment.type || comment?.type) === 'audio' ? '  -  Mensaje de Audio' : ''}
+                        </Text>
                         {String(comment.userId || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ? (
                           <Pressable
                             onPress={() => handleDeleteComment(comment)}
@@ -1079,21 +1083,40 @@ export default function HomeScreen({ navigation }) {
                         ) : null}
                       </View>
                       {(comment.type || comment?.type) === 'audio' ? (
-                        <Pressable
-                          style={[styles.audioBubble, { backgroundColor: colors.surfaceElevated }]}
-                          onPress={() => handleToggleAudio(comment)}
-                        >
-                          <Ionicons
-                            name={activeAudioId === comment.id && isAudioPlaying ? 'pause' : 'play'}
-                            size={16}
-                            color={colors.text}
-                          />
-                          <Text style={{ color: colors.text, marginLeft: 8 }}>
-                            {activeAudioId === comment.id
-                              ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
-                              : 'Audio'}
-                          </Text>
-                        </Pressable>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
+                          <Pressable
+                            onPress={() => handleToggleAudio(comment)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 64 * (textScale || 1),
+                                height: 64 * (textScale || 1),
+                                borderRadius: 64 * (textScale || 1) / 2,
+                                backgroundColor: colors.primary,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                elevation: 2,
+                              }}
+                            >
+                              <Ionicons
+                                name={activeAudioId === comment.id && isAudioPlaying ? 'pause' : 'play'}
+                                size={32 * (textScale || 1)}
+                                color={colors.white}
+                              />
+                            </View>
+
+                            <Text style={{ color: colors.white, marginLeft: 16, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }}>
+                              {activeAudioId === comment.id
+                                ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
+                                : formatTime(comment.audioDurationMs || comment.audio_duration_ms || comment.audioDuration || 0)}
+                            </Text>
+                          </Pressable>
+                        </View>
                       ) : (
                         <Text style={{ color: colors.text, fontSize: 13 }}>{comment.content || comment.text}</Text>
                       )}
@@ -1211,7 +1234,7 @@ const styles = StyleSheet.create({
   commentsOverlay: { flex: 1, justifyContent: 'flex-end' },
   commentsPanel: { width: '92%', height: '100%', alignSelf: 'flex-end', borderTopLeftRadius: 24, borderBottomLeftRadius: 24 },
   commentsHeader: { padding: 16, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  commentRow: { flexDirection: 'row', gap: 6, alignItems: 'flex-start' },
+  commentRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   commentHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   commentDelete: { marginLeft: 8, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   commentAvatar: { width: 38, height: 38, borderRadius: 19 },

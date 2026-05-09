@@ -505,7 +505,16 @@ export default function RegisterScreen({ navigation }) {
           error={errors.confirmPassword}
         />
 
-        <AppButton title="Registrarse" onPress={submit} loading={registering} style={{ marginTop: spacing.md }} />
+        <AppButton 
+          title="REGISTRARSE" 
+          onPress={submit} 
+          loading={registering} 
+          strokeText={true}
+          strokeColor="black"
+           strokeWidth={3}
+          style={{ marginTop: spacing.md, paddingVertical: spacing.lg/1.5 }} 
+          textStyle={{ color: colors.white, fontSize: typography.sizes.xxl * textScale, fontFamily: typography.families.nougat }}
+        />
 
         <View style={styles.footer}>
           <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale }}>Ya tienes cuenta?</Text>

@@ -160,6 +160,7 @@ app.get('/api/videos', async (req, res) => {
                     teamName: cardData.teamName,
                     teamImageUrl: cardData.teamImageUrl,
                     frameImageId: cardData.frameImageId,
+                    frameId: cardData.resolvedFrameId,
                     profileImageUrl: video.uploader.profileImageUrl ?? null,
                 };
             }
@@ -289,7 +290,7 @@ app.get('/api/videos/:id/comments', async (req, res) => {
 
             const cardData = authorProfile
                 ? await resolveCardData(authorProfile.teamId, authorProfile.frameId)
-                : { teamName: null, teamImageUrl: null, frameImageId: null };
+                : { teamName: null, teamImageUrl: null, frameImageId: null, resolvedFrameId: null };
 
             return {
                 ...comment,
@@ -298,6 +299,7 @@ app.get('/api/videos/:id/comments', async (req, res) => {
                 authorTeamName: cardData.teamName,
                 authorTeamImageUrl: cardData.teamImageUrl,
                 authorFrameImageId: cardData.frameImageId,
+                authorFrameId: cardData.resolvedFrameId,
                 id: comment._id.toString(),
                 _id: undefined,
             };
@@ -446,6 +448,41 @@ app.post('/api/foros/:teamId', async (req, res) => {
     }
 });
 
+app.delete('/api/foros/:teamId/:messageId', async (req, res) => {
+    try {
+        const { teamId, messageId } = req.params;
+        const userIdentifier = String(req.body?.user || req.query?.user || '').trim();
+
+        if (!teamId) return res.status(400).json({ message: 'teamId es obligatorio' });
+        if (!messageId) return res.status(400).json({ message: 'messageId es obligatorio' });
+        if (!userIdentifier) return res.status(400).json({ message: 'user es obligatorio' });
+
+        if (!ObjectId.isValid(messageId)) {
+            return res.status(400).json({ message: 'messageId invalido' });
+        }
+
+        const message = await db.collection('foros').findOne({ _id: new ObjectId(messageId), team: teamId });
+        
+        if (!message) {
+            return res.status(404).json({ message: 'Mensaje no encontrado' });
+        }
+
+        // Validate ownership: compare stored user (normalized) with identifier (normalized)
+        const storedUser = String(message.user || '').trim().toLowerCase();
+        const normalizedIdentifier = String(userIdentifier).trim().toLowerCase();
+        
+        if (storedUser !== normalizedIdentifier) {
+            return res.status(403).json({ message: 'No autorizado para eliminar este mensaje' });
+        }
+
+        await db.collection('foros').deleteOne({ _id: new ObjectId(messageId) });
+        return res.json({ message: 'Mensaje eliminado' });
+    } catch (err) {
+        console.error('Error DELETE /api/foros/:teamId/:messageId', err.message);
+        return res.status(500).json({ message: 'Error eliminando mensaje' });
+    }
+});
+
 app.delete('/api/comments/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -587,7 +624,7 @@ app.get('/api/notificaciones', async (req, res) => {
             const actorUsername = actorProfile?.username || actorEmail.split('@')[0] || 'usuario';
             const cardData = actorProfile
                 ? await resolveCardData(actorProfile.teamId, actorProfile.frameId)
-                : { teamName: null, teamImageUrl: null, frameImageId: null };
+                : { teamName: null, teamImageUrl: null, frameImageId: null, actorFrameId: null };
 
             const videoTitle = String(n.videoTitle || 'video').trim();
             const dynamicMessage = `${actorUsername} le ha dado me gusta a tu video: ${videoTitle}`;
@@ -600,6 +637,7 @@ app.get('/api/notificaciones', async (req, res) => {
                 actorTeamName: cardData.teamName,
                 actorTeamImageUrl: cardData.teamImageUrl,
                 actorFrameImageId: cardData.frameImageId,
+                actorFrameId: cardData.resolvedFrameId,
                 id: n._id.toString(),
                 _id: undefined,
             };
@@ -939,6 +977,48 @@ async function handleGetNombresEquipos(req, res) {
 app.get('/api/equipos/nombres', handleGetNombresEquipos);
 app.get('/api/nombresEquipos', handleGetNombresEquipos);
 
+app.get('/api/equipos/lista/todos', async (req, res) => {
+    try {
+        // Fetch from equipos collection first (should have shields)
+        const equiposDocs = await db.collection('equipos').find({}, { projection: { _id: 1, name: 1, Name: 1, escudoUrl: 1 } }).toArray();
+        
+        // Map and normalize
+        const allTeams = equiposDocs.map((doc) => {
+            const escudoUrl = normalizeImageUrl(doc.escudoUrl);
+            const teamName = (doc.name ?? doc.Name ?? 'Equipo sin nombre').trim();
+            return {
+                id: doc._id.toString(),
+                name: teamName,
+                escudoUrl,
+                normalizedName: teamName.toLowerCase().trim(),
+            };
+        });
+
+        // Remove duplicates by normalized name (case-insensitive, trimmed)
+        const uniqueTeams = [];
+        const seenNames = new Set();
+        
+        allTeams.forEach((team) => {
+            if (!seenNames.has(team.normalizedName)) {
+                seenNames.add(team.normalizedName);
+                uniqueTeams.push({
+                    id: team.id,
+                    name: team.name,
+                    escudoUrl: team.escudoUrl,
+                });
+            }
+        });
+
+        // Sort alphabetically in Spanish
+        uniqueTeams.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+
+        return res.json({ equipos: uniqueTeams });
+    } catch (err) {
+        console.error('❌ Error en GET /api/equipos/lista/todos', err.message);
+        return res.status(500).json({ message: 'Error obteniendo lista de equipos' });
+    }
+});
+
 async function handleGetTeamIdByName(req, res) {
     const name = String(req.query.name || '').trim();
 
@@ -1270,20 +1350,32 @@ async function handleLogin(req, res) {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return res.status(400).json({ message: 'Email y contraseña son obligatorios' });
+        return res.status(400).json({ message: 'Email/username y contraseña son obligatorios' });
     }
 
     try {
-        const user = await db.collection('perfiles').findOne({ email: email.toLowerCase().trim() });
+        // Buscar por email o username.
+        // If input looks like an email, search by email (case-insensitive on local part via lowercasing input).
+        // Otherwise treat the input as a username and perform an exact, case-sensitive match.
+        const identifier = email.trim();
+        const looksLikeEmail = (str) => /\S+@\S+\.\S+/.test(str);
+        let user = null;
+        if (looksLikeEmail(identifier)) {
+            const normalizedEmail = identifier.toLowerCase();
+            user = await db.collection('perfiles').findOne({ email: normalizedEmail });
+        } else {
+            // Exact match for username (case-sensitive)
+            user = await db.collection('perfiles').findOne({ username: identifier });
+        }
 
         if (!user) {
-            return res.status(401).json({ message: 'Credenciales invalidas' });
+            return res.status(401).json({ message: 'Usuario no encontrado' });
         }
 
         const passwordMatch = await bcrypt.compare(password, user.password);
 
         if (!passwordMatch) {
-            return res.status(401).json({ message: 'Credenciales invalidas' });
+            return res.status(401).json({ message: 'Contraseña incorrecta' });
         }
 
         const cardData = await resolveCardData(user.teamId, user.frameId);

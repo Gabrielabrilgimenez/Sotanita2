@@ -13,6 +13,7 @@ export default function NotificationItem({ item, onOpenVideo }) {
         position="---"
         backgroundUrl={item.actorTeamImageUrl}
         frameUrl={item.actorFrameImageId}
+        frameId={item.actorFrameId}
         photoUrl={item.actorProfileImageUrl}
         size="small"
         disableShadow

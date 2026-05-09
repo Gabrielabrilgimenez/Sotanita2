@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import StrokeText from './StrokeText';
 import { useAppTheme } from '../hooks/useAppTheme';
 
 const cardBackground = require('../../assets/fondo.png');
@@ -60,6 +61,7 @@ export default function FifaCard({
   backgroundUrl,
   photoUrl,
   frameUrl,
+  frameId,
   style,
   onPress,
 }) {
@@ -108,23 +110,36 @@ export default function FifaCard({
 
       <View style={[styles.contentLayer, { paddingTop: current.topPad }]}> 
         <View style={[styles.footer, { paddingBottom: current.footerBottom }]}> 
-          <Text
-            numberOfLines={1}
+          <StrokeText
             style={[
               styles.username,
               {
                 fontSize: current.title,
-                color: colors.black,
+                color: colors.white,
                 fontFamily: typography.families.nougat,
                 marginBottom: current.marginBottom,
+                textAlign: 'center',
               },
             ]}
+            strokeColor="black"
+            strokeWidth={2}
           >
             {username}
-          </Text>
-          <Text numberOfLines={1} style={[styles.position, { fontSize: current.position, color: colors.black }]}>
+          </StrokeText>
+          <StrokeText
+            style={[
+              styles.position,
+              {
+                fontSize: current.position,
+                color: colors.white,
+                textAlign: 'center',
+              },
+            ]}
+            strokeColor="black"
+            strokeWidth={2}
+          >
             {position}
-          </Text>
+          </StrokeText>
         </View>
       </View>
 

@@ -10,11 +10,18 @@ import ScreenGradient from '../components/ScreenGradient';
 import Header from '../components/Header';
 import LoadingOverlay from '../components/LoadingOverlay';
 
+const isValidEmailOrUsername = (value) => {
+  if (value.includes('@')) {
+    return emailRegex.test(value);
+  }
+  return value.length > 0;
+};
+
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const { colors, spacing, typography, textScale } = useAppTheme();
 
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
@@ -27,8 +34,12 @@ export default function LoginScreen({ navigation }) {
   const onSubmit = async () => {
     const next = {};
 
-    if (!emailRegex.test(email)) {
-      next.email = 'Email invalido';
+    if (!isValidEmailOrUsername(emailOrUsername)) {
+      if (emailOrUsername.includes('@')) {
+        next.emailOrUsername = 'Email invalido';
+      } else {
+        next.emailOrUsername = 'Username requerido';
+      }
     }
     if (!password || password.length < 6) {
       next.password = 'La contrasena debe tener al menos 6 caracteres';
@@ -43,7 +54,7 @@ export default function LoginScreen({ navigation }) {
     setServerError('');
 
     try {
-      await login(email, password);
+      await login(emailOrUsername, password);
       // navigation.replace('Home'); // Manejado por AppNavigator condicionalmente
     } catch (error) {
       setServerError(error.message || 'No se pudo iniciar sesion');
@@ -67,12 +78,12 @@ export default function LoginScreen({ navigation }) {
         </View>
 
         <AppInput
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="tu@email.com"
+          label="Email o Username"
+          value={emailOrUsername}
+          onChangeText={setEmailOrUsername}
+          placeholder="tu@email.com o usuario"
           keyboardType="email-address"
-          error={errors.email}
+          error={errors.emailOrUsername}
         />
 
         <AppInput
@@ -88,7 +99,16 @@ export default function LoginScreen({ navigation }) {
 
         {serverError ? <Text style={[styles.error, { color: colors.danger }]}>{serverError}</Text> : null}
 
-        <AppButton title="Iniciar sesion" onPress={onSubmit} loading={loggingIn} style={{ marginTop: spacing.md }} />
+        <AppButton 
+          title="INICIAR SESION" 
+          onPress={onSubmit} 
+          loading={loggingIn} 
+          strokeText={true}
+          strokeColor="black"
+           strokeWidth={3}
+          style={{ marginTop: spacing.md, paddingVertical: spacing.lg/1.5 }} 
+          textStyle={{ color: colors.white, fontSize: typography.sizes.xxl * textScale, fontFamily: typography.families.nougat }}
+        />
 
         <View style={styles.footer}>
           <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale }}>No tienes cuenta?</Text>

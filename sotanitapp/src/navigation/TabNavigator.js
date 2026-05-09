@@ -329,6 +329,7 @@ export default function TabNavigator({ navigation }) {
                     photoUrl={profilePreview.profileImageUrl}
                     backgroundUrl={profilePreview.teamImageUrl}
                     frameUrl={profilePreview.frameImageId}
+                    frameId={profilePreview.frameId}
                     disableShadow
                   />
                 </View>
@@ -440,6 +441,7 @@ export default function TabNavigator({ navigation }) {
             photoUrl={profilePreview.profileImageUrl}
             backgroundUrl={profilePreview.teamImageUrl}
             frameUrl={profilePreview.frameImageId}
+            frameId={profilePreview.frameId}
             disableShadow
           />
         </Animated.View>

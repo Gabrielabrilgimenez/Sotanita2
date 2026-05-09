@@ -310,6 +310,7 @@ export default function MyVideosScreen({ navigation, route }) {
                       team={uploaderCard.teamName}
                       backgroundUrl={uploaderCard.teamImageUrl}
                       frameUrl={uploaderCard.frameImageId}
+                      frameId={uploaderCard.frameId}
                       photoUrl={uploaderCard.profileImageUrl}
                       size="small"
                       disableShadow
@@ -394,6 +395,7 @@ export default function MyVideosScreen({ navigation, route }) {
                       team={uploaderCard.teamName}
                       backgroundUrl={uploaderCard.teamImageUrl}
                       frameUrl={uploaderCard.frameImageId}
+                      frameId={uploaderCard.frameId}
                       photoUrl={uploaderCard.profileImageUrl}
                       size="small"
                       disableShadow
@@ -447,6 +449,7 @@ export default function MyVideosScreen({ navigation, route }) {
                       team={uploaderCard.teamName}
                       backgroundUrl={uploaderCard.teamImageUrl}
                       frameUrl={uploaderCard.frameImageId}
+                      frameId={uploaderCard.frameId}
                       photoUrl={uploaderCard.profileImageUrl}
                       size="small"
                       disableShadow

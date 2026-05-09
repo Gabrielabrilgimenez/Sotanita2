@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Dimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllVideos, getPositions, getTeamById, getTeamNames, isUsernameAvailable } from '../api/backend';
+import { getAllVideos, getPositions, getTeamById, getTeamNames, getTeamsListWithEscudo, isUsernameAvailable } from '../api/backend';
 import ScreenGradient from '../components/ScreenGradient';
 import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
@@ -53,6 +53,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState('');
   const [teamOptions, setTeamOptions] = useState([]);
+  const [fullTeamList, setFullTeamList] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [positionOptions, setPositionOptions] = useState([]);
   const [loadingPositions, setLoadingPositions] = useState(false);
@@ -143,8 +144,9 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
     if (field === 'team') {
       setLoadingTeams(true);
       try {
-        const names = await getTeamNames();
-        setTeamOptions(names);
+        const teams = await getTeamsListWithEscudo();
+        setFullTeamList(teams);
+        setTeamOptions(teams.map(t => t.name));
       } catch (error) {
         console.error('Error cargando equipos:', error);
       } finally {
@@ -417,6 +419,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                 photoUrl={profile.profileImageUrl}
                 backgroundUrl={profile.teamImageUrl}
                 frameUrl={profile.frameImageId}
+                frameId={profile.frameId}
                 size="xlarge"
                 disableShadow
                 onPress={handleCardPress}
@@ -730,53 +733,78 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
           onPress={() => setShowTeamPicker(false)}
         >
-          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <Pressable
-              onPress={() => {
-                setTempValue('');
-                setShowTeamPicker(false);
-              }}
-              style={[styles.selectMenuItem, tempValue === '' && { backgroundColor: `${colors.primary}22` }]}
-            >
-              <Text
-                style={{
-                  color: selectTextColor,
-                  fontFamily: typography.families.nougat,
-                  fontSize: selectItemFontSize,
-                  textAlign: 'center',
-                }}
-              >
-                Selecciona un equipo
-              </Text>
-            </Pressable>
-            <View style={styles.selectMenuGrid}>
-              {teamOptions.map((team, index) => (
+          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 0 }}>
+            <FlatList
+              style={{ width: '100%' }}
+              data={fullTeamList}
+              renderItem={({ item }) => (
                 <Pressable
-                  key={team}
                   onPress={() => {
-                    setTempValue(team);
+                    setTempValue(item.name);
                     setShowTeamPicker(false);
                   }}
-                  style={[
-                    styles.selectMenuItem,
-                    styles.selectMenuItemThird,
-                    index % 3 === 1 && { backgroundColor: teamColumnHighlight },
-                    team === tempValue && { backgroundColor: `${colors.primary}22` },
-                  ]}
+                  style={{
+                    width: Dimensions.get('window').width / 2,
+                    height: Dimensions.get('window').height / 3,
+                    padding: 8,
+                  }}
                 >
-                  <Text
+                  <View
                     style={{
-                      color: selectTextColor,
-                      fontFamily: typography.families.nougat,
-                      fontSize: selectTeamItemFontSize,
-                      textAlign: 'center',
+                      flex: 1,
+                      borderRadius: 12,
+                      backgroundColor: colors.surfaceElevated,
+                      borderWidth: item.name === tempValue ? 3 : 1,
+                      borderColor: item.name === tempValue ? colors.primary : colors.border,
+                      overflow: 'hidden',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 8,
                     }}
                   >
-                    {team}
-                  </Text>
+                    {item.escudoUrl ? (
+                      <Image
+                        source={{ uri: item.escudoUrl }}
+                          style={{
+                            width: '70%',
+                            height: '50%',
+                            resizeMode: 'contain',
+                            marginBottom: 12,
+                          }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: '80%',
+                          height: '60%',
+                          backgroundColor: colors.border,
+                          borderRadius: 8,
+                          marginBottom: 8,
+                        }}
+                      />
+                    )}
+                    <Text
+                      style={{
+                        color: colors.text,
+                          fontSize: 16,
+                        fontWeight: '700',
+                        textAlign: 'center',
+                        flexWrap: 'wrap',
+                        fontFamily: typography.families.nougat,
+                      }}
+                      numberOfLines={2}
+                    >
+                      {item.name}
+                    </Text>
+                  </View>
                 </Pressable>
-              ))}
-            </View>
+              )}
+              keyExtractor={(item, index) => item.id || index.toString()}
+              horizontal
+              contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 24 }}
+              scrollEventThrottle={16}
+              showsHorizontalScrollIndicator={true}
+            />
           </View>
         </Pressable>
       </Modal>
