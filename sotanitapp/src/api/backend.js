@@ -213,6 +213,12 @@ export async function postForumMessage(teamId, payload) {
   return parseResponse(response);
 }
 
+export async function isUsernameAvailable(username) {
+  const encoded = encodeURIComponent(String(username || ''));
+  const response = await fetch(buildApiUrl(`/api/usuarios/usernameDisponible?username=${encoded}`));
+  return parseResponse(response);
+}
+
 export async function deleteVideoComment(commentId, idUsuario) {
   const encodedUser = encodeURIComponent(idUsuario || '');
   const response = await fetch(buildApiUrl(`/api/comments/${commentId}?id_usuario=${encodedUser}`), {

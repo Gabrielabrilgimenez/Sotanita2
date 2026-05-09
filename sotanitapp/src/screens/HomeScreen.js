@@ -613,7 +613,6 @@ export default function HomeScreen({ navigation }) {
         const uploadResult = await uploadCommentAudio(formData);
         const payload = {
           id_usuario: user?.email || 'usuario',
-          username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
           type: 'audio',
           text: null,
           audioUrl: uploadResult.url,
@@ -669,7 +668,6 @@ export default function HomeScreen({ navigation }) {
       const uploadResult = await uploadCommentAudio(formData);
       const payload = {
         id_usuario: user?.email || 'usuario',
-        username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
         type: 'audio',
         text: null,
         audioUrl: uploadResult.url,
@@ -733,7 +731,6 @@ export default function HomeScreen({ navigation }) {
     try {
       const payload = {
         id_usuario: user?.email || 'usuario',
-        username: user?.username || (user?.email ? user.email.split('@')[0] : 'usuario'),
         type: 'text',
         text: commentText.trim(),
         audioUrl: null,

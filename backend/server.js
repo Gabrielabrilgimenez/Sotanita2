@@ -317,9 +317,8 @@ app.post('/api/videos/:id/comments', async (req, res) => {
             return res.status(400).json({ message: 'id de video invalido' });
         }
 
-        const { id_usuario, username, type, text, audioUrl } = req.body || {};
+        const { id_usuario, type, text, audioUrl } = req.body || {};
         const normalizedUser = String(id_usuario || '').trim().toLowerCase();
-        const normalizedUsername = String(username || '').trim();
         const normalizedType = String(type || '').trim().toLowerCase();
 
         if (!normalizedUser) {
@@ -341,7 +340,6 @@ app.post('/api/videos/:id/comments', async (req, res) => {
         const commentDoc = {
             videoId: id,
             userId: normalizedUser,
-            username: normalizedUsername || normalizedUser.split('@')[0] || 'usuario',
             type: normalizedType,
             text: normalizedType === 'text' ? String(text).trim() : null,
             audioUrl: normalizedType === 'audio' ? String(audioUrl).trim() : null,
@@ -373,8 +371,42 @@ app.get('/api/foros/:teamId', async (req, res) => {
             .sort({ date: 1 })
             .toArray();
 
-        const mapped = msgs.map((m) => ({ ...m, id: m._id.toString(), _id: undefined }));
-        return res.json(mapped);
+        // Enrich each message: resolve current username from perfiles using stored user (email)
+        const enriched = await Promise.all(msgs.map(async (m) => {
+            const storedUser = String(m.user || '').trim();
+            const maybeEmail = storedUser.includes('@') ? storedUser.toLowerCase() : null;
+
+            let resolvedUsername = storedUser;
+            let profileImageUrl = null;
+
+            if (maybeEmail) {
+                const profile = await db.collection('perfiles').findOne({ email: maybeEmail });
+                if (profile) {
+                    resolvedUsername = profile.username || (maybeEmail.split('@')[0]);
+                    profileImageUrl = profile.profileImageUrl || null;
+                } else {
+                    resolvedUsername = maybeEmail.split('@')[0];
+                }
+            } else {
+                // stored value is not an email (legacy) - try to resolve by username
+                const profile = await db.collection('perfiles').findOne({ username: storedUser }, { collation: { locale: 'es', strength: 2 } });
+                if (profile) {
+                    resolvedUsername = profile.username;
+                    profileImageUrl = profile.profileImageUrl || null;
+                }
+            }
+
+            return {
+                ...m,
+                id: m._id.toString(),
+                _id: undefined,
+                user: resolvedUsername,
+                userEmail: maybeEmail,
+                profileImageUrl,
+            };
+        }));
+
+        return res.json(enriched);
     } catch (err) {
         console.error('Error GET /api/foros/:teamId', err.message);
         return res.status(500).json({ message: 'Error obteniendo foro' });
@@ -392,8 +424,12 @@ app.post('/api/foros/:teamId', async (req, res) => {
         if (type === 'text' && (!text || String(text).trim().length === 0)) return res.status(400).json({ message: 'text es obligatorio para type=text' });
         if (type === 'text' && String(text).length > 500) return res.status(400).json({ message: 'text supera 500 caracteres' });
 
+        // Normalize user identifier: prefer email (lowercased) when present
+        const rawUser = String(user || '').trim();
+        const normalizedUser = rawUser.includes('@') ? rawUser.toLowerCase() : rawUser;
+
         const doc = {
-            user,
+            user: normalizedUser,
             team: teamId,
             type,
             audioUrl: type === 'audio' ? (audioUrl || null) : null,
@@ -498,17 +534,13 @@ app.post('/api/videos/:id/like', async (req, res) => {
         const ownerUserId = String(video.id_usuario || '').trim().toLowerCase();
         if (!alreadyLiked) {
             const recipientUserId = ownerUserId || userIdRaw;
-            const actorProfile = await db.collection('perfiles').findOne({ email: userIdRaw });
-            const actorUsername = String(actorProfile?.username || userIdRaw.split('@')[0] || 'Usuario').trim();
             const videoTitle = String(video.title || 'video').trim();
 
             await db.collection('notificaciones').insertOne({
                 videoId: video._id.toString(),
                 videoTitle,
                 actorUserId: userIdRaw,
-                actorUsername,
                 recipientUserId,
-                message: `${actorUsername} le ha dado me gusta a tu video: ${videoTitle}`,
                 type: 'like',
                 read: false,
                 createdAt: new Date(),
@@ -552,13 +584,18 @@ app.get('/api/notificaciones', async (req, res) => {
                 actorProfile = await db.collection('perfiles').findOne({ email: actorEmail });
             }
 
+            const actorUsername = actorProfile?.username || actorEmail.split('@')[0] || 'usuario';
             const cardData = actorProfile
                 ? await resolveCardData(actorProfile.teamId, actorProfile.frameId)
                 : { teamName: null, teamImageUrl: null, frameImageId: null };
 
+            const videoTitle = String(n.videoTitle || 'video').trim();
+            const dynamicMessage = `${actorUsername} le ha dado me gusta a tu video: ${videoTitle}`;
+
             return {
                 ...n,
-                actorUsername: actorProfile?.username || n.actorUsername || actorEmail.split('@')[0] || 'usuario',
+                actorUsername,
+                message: dynamicMessage,
                 actorProfileImageUrl: actorProfile?.profileImageUrl || null,
                 actorTeamName: cardData.teamName,
                 actorTeamImageUrl: cardData.teamImageUrl,
@@ -741,9 +778,38 @@ const DB_NAME = process.env.MONGO_DB_NAME || 'sotanitapp';
 let db;
 
 const createUserSchema = z.object({
-    username: z.string().min(3),
-    email: z.string().email(),
-    password: z.string().min(6),
+    username: z.string()
+        .min(3, 'Username debe tener al menos 3 caracteres')
+        .max(10, 'Username no puede superar 10 caracteres')
+        .regex(/^[a-zA-Z0-9.\-]+$/, 'Username solo puede contener letras, numeros, "." y "-"')
+        .refine(
+            (username) => /[a-zA-Z]/.test(username),
+            'Username debe contener al menos una letra'
+        ),
+    email: z.string()
+        .email('Email invalido')
+        .refine(
+            (email) => {
+                // Basic real email validation - must have common TLD
+                const parts = email.split('@');
+                if (parts.length !== 2) return false;
+                const domain = parts[1];
+                return /\.[a-z]{2,}$/i.test(domain);
+            },
+            'Email debe ser un email valido y real'
+        ),
+    password: z.string()
+        .min(8, 'Contrasena debe tener minimo 8 caracteres')
+        .regex(/[a-zA-Z]/, 'Contrasena debe contener al menos una letra')
+        .regex(/\d/, 'Contrasena debe contener al menos un numero')
+        .regex(/[$&%_#]/, 'Contrasena debe contener al menos un caracter especial ($, &, %, _, #)')
+        .refine(
+            (password) => {
+                // Verify it only contains allowed characters
+                return /^[a-zA-Z0-9$&%_#]+$/.test(password);
+            },
+            'Contrasena solo puede contener letras, numeros y caracteres especiales ($, &, %, _, #)'
+        ),
     position: z.string().min(1),
     teamId: z.string().min(1).optional(),
     teamName: z.string().min(1).optional(),
@@ -1060,6 +1126,32 @@ async function handleCreateUser(req, res) {
 app.post('/api/usuarios', handleCreateUser);
 app.post('/api/crearNuevoUsuario', handleCreateUser);
 
+// Check username availability
+app.get('/api/usuarios/usernameDisponible', async (req, res) => {
+    try {
+        const username = String(req.query.username || '').trim();
+        if (!username) return res.status(400).json({ message: 'username es obligatorio' });
+
+        if (username.length < 3 || username.length > 10) {
+            return res.json({ available: false, reason: 'length' });
+        }
+
+        if (!/^[a-zA-Z0-9.\-]+$/.test(username)) {
+            return res.json({ available: false, reason: 'invalid_chars' });
+        }
+
+        if (!/[a-zA-Z]/.test(username)) {
+            return res.json({ available: false, reason: 'needs_letter' });
+        }
+
+        const existing = await db.collection('perfiles').findOne({ username }, { collation: { locale: 'es', strength: 2 } });
+        return res.json({ available: !Boolean(existing) });
+    } catch (err) {
+        console.error('Error checking username availability', err.message);
+        return res.status(500).json({ message: 'Error interno' });
+    }
+});
+
 async function handleUpdateUser(req, res) {
     const { id } = req.params;
     const { username, teamId, teamName, position, profileImageUrl } = req.body;
@@ -1076,6 +1168,18 @@ async function handleUpdateUser(req, res) {
 
             if (normalizedUsername.length < 3) {
                 return res.status(400).json({ message: 'El nombre de usuario debe tener al menos 3 caracteres' });
+            }
+
+            if (normalizedUsername.length > 10) {
+                return res.status(400).json({ message: 'El nombre de usuario no puede superar 10 caracteres' });
+            }
+
+            if (!/^[a-zA-Z0-9.\-]+$/.test(normalizedUsername)) {
+                return res.status(400).json({ message: 'Username solo puede contener letras, numeros, "." y "-"' });
+            }
+
+            if (!/[a-zA-Z]/.test(normalizedUsername)) {
+                return res.status(400).json({ message: 'El username debe contener al menos una letra' });
             }
 
             const idCandidates = buildIdCandidates(id);

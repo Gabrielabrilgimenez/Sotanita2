@@ -114,7 +114,8 @@ export default function ForoEquipo({ route, navigation }) {
     try {
       // indicate that after the update we should scroll to bottom (because current user sent)
       scrollOnNextUpdateRef.current = true;
-      await postForumMessage(teamId, { user: user.email || user.id || user?.email, type: 'text', text: trimmed });
+      // Always send the email as the identifier when possible
+      await postForumMessage(teamId, { user: user?.email || user?.id || user?.username || '', type: 'text', text: trimmed });
       setText('');
       await fetchMessages();
       // If we flagged to scroll (because current user sent), do it now
@@ -158,7 +159,7 @@ export default function ForoEquipo({ route, navigation }) {
           const formData = new FormData();
           formData.append('file', file);
           const uploadResult = await uploadCommentAudio(formData);
-          await postForumMessage(teamId, { user: user?.email || user?.id || '', type: 'audio', audioUrl: uploadResult.url });
+          await postForumMessage(teamId, { user: user?.email || user?.id || user?.username || '', type: 'audio', audioUrl: uploadResult.url });
           await fetchMessages();
           try {
             if (scrollOnNextUpdateRef.current && scrollRef.current) {
@@ -199,7 +200,7 @@ export default function ForoEquipo({ route, navigation }) {
 
         scrollOnNextUpdateRef.current = true;
         const uploadResult = await uploadCommentAudio(formData);
-        await postForumMessage(teamId, { user: user?.email || user?.id || '', type: 'audio', audioUrl: uploadResult.url });
+        await postForumMessage(teamId, { user: user?.email || user?.id || user?.username || '', type: 'audio', audioUrl: uploadResult.url });
         await fetchMessages();
         try {
           if (scrollOnNextUpdateRef.current && scrollRef.current) {
@@ -313,7 +314,10 @@ export default function ForoEquipo({ route, navigation }) {
   }, [activeAudioId]);
 
   const renderItem = ({ item }) => {
-    const isMine = String(item.user || '').trim().toLowerCase() === String(user?.email || user?.id || '').trim().toLowerCase();
+    const itemEmail = String(item.userEmail || '').trim().toLowerCase();
+    const itemUserKey = itemEmail || String(item.user || '').trim().toLowerCase();
+    const myKeys = [user?.email, user?.username, user?.id].filter(Boolean).map((v) => String(v).trim().toLowerCase());
+    const isMine = itemEmail ? myKeys.includes(itemEmail) : myKeys.includes(itemUserKey);
     const containerStyle = isMine ? styles.messageRight : styles.messageLeft;
     const bubbleStyle = isMine ? { backgroundColor: colors.primary, alignSelf: 'flex-end' } : { backgroundColor: colors.surfaceElevated, alignSelf: 'flex-start' };
 

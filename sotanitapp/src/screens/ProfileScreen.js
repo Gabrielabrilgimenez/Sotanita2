@@ -6,7 +6,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllVideos, getPositions, getTeamById, getTeamNames } from '../api/backend';
+import { getAllVideos, getPositions, getTeamById, getTeamNames, isUsernameAvailable } from '../api/backend';
 import ScreenGradient from '../components/ScreenGradient';
 import FifaCard from '../components/FifaCard';
 import AppButton from '../components/AppButton';
@@ -306,9 +306,37 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       return;
     }
 
-    if (editingField === 'username' && normalizedValue.length < 3) {
-      setEditError('El nombre de usuario debe tener al menos 3 caracteres');
-      return;
+    if (editingField === 'username') {
+      if (normalizedValue.length < 3) {
+        setEditError('El nombre de usuario debe tener al menos 3 caracteres');
+        return;
+      }
+
+      if (normalizedValue.length > 10) {
+        setEditError('El nombre de usuario no puede superar 10 caracteres');
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9.\-]+$/.test(normalizedValue)) {
+        setEditError('Solo letras, numeros, "." y "-"');
+        return;
+      }
+
+      if (!/[a-zA-Z]/.test(normalizedValue)) {
+        setEditError('El nombre de usuario debe contener al menos una letra');
+        return;
+      }
+
+      // Check availability on server
+      try {
+        const avail = await isUsernameAvailable(normalizedValue);
+        if (avail && avail.available === false) {
+          setEditError('Ese nombre de usuario no está disponible');
+          return;
+        }
+      } catch (err) {
+        // If check fails, continue and let server-side update handle duplicates
+      }
     }
 
     setSavingChanges(true);
@@ -416,7 +444,6 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
             <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.xl, gap: spacing.sm }}>
               {[
                 { key: 'username', label: 'Usuario' },
-                { key: 'team', label: 'Equipo' },
                 { key: 'position', label: 'Posicion' },
               ].map((field) => (
                 <View key={field.key} style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
@@ -461,7 +488,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                   }}
                   numberOfLines={2}
                 >
-                  Ver tu equipo
+                  ACCEDE A LA FAN ZONE
                 </Text>
               </Pressable>
 
@@ -552,6 +579,9 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
             {editingField === 'username' ? (
               <>
                 <AppInput value={tempValue} onChangeText={setTempValue} placeholder="Nuevo nombre" />
+                <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: spacing.sm }}>
+                  3-10 caracteres. Solo letras, numeros, "." y "-". Debe contener al menos una letra.
+                </Text>
                 {editError ? <Text style={[styles.error, { color: colors.danger }]}>{editError}</Text> : null}
               </>
             ) : editingField === 'team' ? (

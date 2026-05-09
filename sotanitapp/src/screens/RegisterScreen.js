@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getPositions, getTeamNames } from '../api/backend';
+import { getPositions, getTeamNames, isUsernameAvailable } from '../api/backend';
 import { emailRegex } from '../utils/format';
 import AppButton from '../components/AppButton';
 import AppInput from '../components/AppInput';
@@ -38,12 +38,17 @@ function arrayBufferToBase64(arrayBuffer) {
 
 function passwordStrength(password) {
   let score = 0;
-  if (password.length >= 6) score += 1;
   if (password.length >= 8) score += 1;
   if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
   if (/\d/.test(password)) score += 1;
-  if (/[^a-zA-Z\d]/.test(password)) score += 1;
-  return score;
+  if (/[$&%_#]/.test(password)) score += 1;
+  
+  // Bonus point if has all required components
+  if (/[a-zA-Z]/.test(password) && /\d/.test(password) && /[$&%_#]/.test(password)) {
+    score += 1;
+  }
+  
+  return Math.min(score, 5);
 }
 
 export default function RegisterScreen({ navigation }) {
@@ -232,12 +237,47 @@ export default function RegisterScreen({ navigation }) {
   const submit = async () => {
     const next = {};
 
-    if (!form.username || form.username.length < 3) next.username = 'Minimo 3 caracteres';
+    // Validación Username
+    if (!form.username) {
+      next.username = 'Username es obligatorio';
+    } else if (form.username.length < 3) {
+      next.username = 'Username debe tener al menos 3 caracteres';
+    } else if (form.username.length > 10) {
+      next.username = 'Username no puede superar 10 caracteres';
+    } else if (!/^[a-zA-Z0-9.\-]+$/.test(form.username)) {
+      next.username = 'Solo letras, numeros, "." y "-"';
+    } else if (!/[a-zA-Z]/.test(form.username)) {
+      next.username = 'Debe contener al menos una letra';
+    }
+
+    // Validación Email
     if (!emailRegex.test(form.email)) next.email = 'Email invalido';
+
+    // Validación Position
     if (!form.position) next.position = 'Selecciona una posicion';
+
+    // Validación Team
     if (!form.team) next.team = 'Selecciona un equipo';
-    if (!form.password || form.password.length < 6) next.password = 'Minimo 6 caracteres';
-    if (form.confirmPassword !== form.password) next.confirmPassword = 'Las contrasenas no coinciden';
+
+    // Validación Password
+    if (!form.password) {
+      next.password = 'Contrasena es obligatoria';
+    } else if (form.password.length < 8) {
+      next.password = 'Minimo 8 caracteres';
+    } else if (!/[a-zA-Z]/.test(form.password)) {
+      next.password = 'Debe contener una letra';
+    } else if (!/\d/.test(form.password)) {
+      next.password = 'Debe contener un numero';
+    } else if (!/[$&%_#]/.test(form.password)) {
+      next.password = 'Debe contener un caracter especial ($, &, %, _, #)';
+    } else if (!/^[a-zA-Z0-9$&%_#]+$/.test(form.password)) {
+      next.password = 'Contiene caracteres no permitidos';
+    }
+
+    // Validación Confirm Password
+    if (form.confirmPassword !== form.password) {
+      next.confirmPassword = 'Las contrasenas no coinciden';
+    }
 
     setErrors(next);
     if (Object.keys(next).length > 0) {
@@ -248,6 +288,15 @@ export default function RegisterScreen({ navigation }) {
     setServerError('');
 
     try {
+      // Check username availability on server
+      if (form.username) {
+        const avail = await isUsernameAvailable(form.username);
+        if (avail && avail.available === false) {
+          setErrors({ ...next, username: 'Ese nombre de usuario no está disponible' });
+          setRegistering(false);
+          return;
+        }
+      }
       await register({
         ...form,
         profileImageUrl: photoDataUrl || undefined,
@@ -269,11 +318,6 @@ export default function RegisterScreen({ navigation }) {
         onBack={() => navigation.goBack()}
       />
       <ScrollView ref={scrollRef} contentContainerStyle={[styles.scrollContent, { padding: spacing.xl }]}>
-        <Text style={{ color: colors.textMuted, fontSize: typography.sizes.md * textScale, marginBottom: spacing.xl }}>
-          Unete a la comunidad
-        </Text>
-
-        <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Foto de jugador</Text>
         <Pressable
           onPress={handleSelectPhoto}
           disabled={photoLoading}
@@ -298,7 +342,7 @@ export default function RegisterScreen({ navigation }) {
             <View style={styles.photoPlaceholder}>
               <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold }}>Toca para subir tu foto</Text>
               <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>
-                Se convierte a PNG sin fondo antes de guardarse
+                ¡Esta foto irá en tu propia Player Card!
               </Text>
             </View>
           )}
@@ -309,11 +353,16 @@ export default function RegisterScreen({ navigation }) {
           label="Nombre de usuario"
           value={form.username}
           onChangeText={(username) => setForm((prev) => ({ ...prev, username }))}
-          placeholder="Ronaldo10"
+          placeholder="Nombre de usuario"
           error={errors.username}
         />
-
-        <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Posicion</Text>
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.border, // o el color que quieras
+            marginBottom: spacing.md,
+          }}
+        />
         <View
           style={[
             styles.selectWrap,
@@ -339,8 +388,13 @@ export default function RegisterScreen({ navigation }) {
         {errors.position ? <Text style={[styles.error, { color: colors.danger }]}>{errors.position}</Text> : null}
         {loadingPositions ? <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando posiciones...</Text> : null}
         {positionsError ? <Text style={[styles.error, { color: colors.danger }]}>{positionsError}</Text> : null}
-
-        <Text style={[styles.label, { color: colors.text, fontSize: typography.sizes.sm * textScale }]}>Equipo favorito</Text>
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.transparent, // o el color que quieras
+            marginBottom: spacing.md,
+          }}
+        />
         <View
           style={[
             styles.selectWrap,
@@ -366,13 +420,20 @@ export default function RegisterScreen({ navigation }) {
         {errors.team ? <Text style={[styles.error, { color: colors.danger }]}>{errors.team}</Text> : null}
         {loadingTeams ? <Text style={[styles.hint, { color: colors.textMuted }]}>Cargando equipos...</Text> : null}
         {serverError ? <Text style={[styles.error, { color: colors.danger }]}>{serverError}</Text> : null}
-
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.border, // o el color que quieras
+            marginTop: spacing.md/2,
+            marginBottom: spacing.md,
+          }}
+        />
         <AppInput
           label="Email"
           value={form.email}
           onChangeText={(email) => setForm((prev) => ({ ...prev, email }))}
           keyboardType="email-address"
-          placeholder="tu@email.com"
+          placeholder="Introduce un email válido"
           error={errors.email}
         />
 
@@ -398,7 +459,7 @@ export default function RegisterScreen({ navigation }) {
                     {
                       backgroundColor:
                         level <= strength
-                          ? strength <= 1
+                          ? strength <= 2
                             ? colors.danger
                             : strength <= 3
                             ? colors.primary
@@ -409,9 +470,27 @@ export default function RegisterScreen({ navigation }) {
                 />
               ))}
             </View>
-            <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>
-              Fortaleza: {strength <= 1 ? 'Debil' : strength <= 3 ? 'Media' : 'Fuerte'}
+            <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>
+              Fortaleza: {strength <= 2 ? 'Debil' : strength <= 3 ? 'Media' : 'Fuerte'}
             </Text>
+            
+            <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 8, marginBottom: 4 }}>
+              Requisitos:
+            </Text>
+            <View style={{ marginLeft: spacing.sm }}>
+              <Text style={{ color: /[a-zA-Z]/.test(form.password) ? colors.success : colors.textMuted, fontSize: typography.sizes.xs * textScale }}>
+                {/[a-zA-Z]/.test(form.password) ? '✓' : '○'} Al menos una letra
+              </Text>
+              <Text style={{ color: /\d/.test(form.password) ? colors.success : colors.textMuted, fontSize: typography.sizes.xs * textScale }}>
+                {/\d/.test(form.password) ? '✓' : '○'} Al menos un numero
+              </Text>
+              <Text style={{ color: /[$&%_#]/.test(form.password) ? colors.success : colors.textMuted, fontSize: typography.sizes.xs * textScale }}>
+                {/[$&%_#]/.test(form.password) ? '✓' : '○'} Al menos un caracter especial ($, &, %, _, #)
+              </Text>
+              <Text style={{ color: form.password.length >= 8 ? colors.success : colors.textMuted, fontSize: typography.sizes.xs * textScale }}>
+                {form.password.length >= 8 ? '✓' : '○'} Minimo 8 caracteres ({form.password.length}/8)
+              </Text>
+            </View>
           </View>
         ) : null}
 

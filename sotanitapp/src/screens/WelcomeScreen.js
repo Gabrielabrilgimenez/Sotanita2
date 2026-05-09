@@ -6,6 +6,7 @@ import ScreenGradient from '../components/ScreenGradient';
 const appLogo = require('../../assets/LOGO.png');
 const loginButtonImage = require('../../assets/init/login.png');
 const registerButtonImage = require('../../assets/init/register.png');
+const guestButtonImage = require('../../assets/init/guest.png');
 
 export default function WelcomeScreen({ navigation }) {
   const { enterAsGuest } = useAuth();
@@ -49,10 +50,8 @@ export default function WelcomeScreen({ navigation }) {
             </Pressable>
           </View>
 
-          <Pressable onPress={handleGuest} style={[styles.guestButton, { borderColor: `${colors.white}66` }]}>
-            <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, fontSize: typography.sizes.md * textScale }}>
-              Entrar como invitado
-            </Text>
+          <Pressable onPress={handleGuest} style={styles.guestButton}>
+            <Image source={guestButtonImage} style={styles.guestButtonImage} resizeMode="contain" />
           </Pressable>
         </View>
       </View>
@@ -76,7 +75,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   actions: {
-    gap: 14,
+    gap: 30,
   },
   authImageButtonsRow: {
     flexDirection: 'row',
@@ -93,10 +92,13 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   guestButton: {
-    minHeight: 52,
+    width: '100%',
+    aspectRatio: 3.2,
     borderRadius: 14,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  guestButtonImage: {
+    width: '100%',
+    height: '100%',
   },
 });
