@@ -122,7 +122,9 @@ export default function MyVideosScreen({ navigation, route }) {
 
         const filtered = sourceTab === 'liked'
           ? normalized.filter((video) => video.hasLiked)
-          : normalized.filter((video) => video.uploader === currentUserId);
+          : sourceTab === 'ranking'
+            ? normalized
+            : normalized.filter((video) => video.uploader === currentUserId);
 
         setVideos(filtered);
 
@@ -189,7 +191,7 @@ export default function MyVideosScreen({ navigation, route }) {
   });
 
   const headerTitle = useMemo(
-    () => (sourceTab === 'liked' ? 'Video que te gusta' : 'Tu video'),
+    () => (sourceTab === 'liked' ? 'Video que te gusta' : sourceTab === 'ranking' ? 'Video del ranking' : 'Tu video'),
     [sourceTab]
   );
 
@@ -277,7 +279,11 @@ export default function MyVideosScreen({ navigation, route }) {
         ) : !activeVideo ? (
           <View style={styles.videoCenter}>
             <Text style={{ color: `${colors.white}80` }}>
-              {sourceTab === 'liked' ? 'No tienes videos con like' : 'No tienes videos subidos'}
+              {sourceTab === 'liked'
+                ? 'No tienes videos con like'
+                : sourceTab === 'ranking'
+                  ? 'No se pudo cargar el video del ranking'
+                  : 'No tienes videos subidos'}
             </Text>
           </View>
         ) : (

@@ -217,7 +217,7 @@ const FeedVideoItem = ({
   );
 };
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, route }) {
   const { colors, typography, textScale, darkMode, highContrast } = useAppTheme();
   const isFocused = useIsFocused();
   const { user, isLoggedIn } = useAuth();
@@ -446,6 +446,16 @@ export default function HomeScreen({ navigation }) {
       console.error('Error cargando comentarios:', error);
     }
   }, [mapComment]);
+
+  useEffect(() => {
+    const targetVideoId = route?.params?.videoId;
+    if (!targetVideoId) {
+      return;
+    }
+
+    openComments(targetVideoId);
+    navigation.setParams({ videoId: undefined });
+  }, [navigation, openComments, route?.params?.videoId]);
 
   const closeComments = useCallback(() => {
     Animated.timing(commentsAnim, {

@@ -22,6 +22,319 @@ cloudinary.config({
 
 const upload = multer({ dest: 'uploads/' });
 
+const WEEKLY_RANK_AWARDS = {
+    general: [10, 6, 2],
+    category: [5, 3, 1],
+};
+
+const FRAME_TIERS = [
+    { minPoints: 0, frameId: 'bronce' },
+    { minPoints: 10, frameId: 'plata' },
+    { minPoints: 50, frameId: 'oro' },
+    { minPoints: 100, frameId: 'platino' },
+    { minPoints: 250, frameId: 'amatista' },
+];
+
+const DEFINITE_FRAME_TIERS = FRAME_TIERS.filter((tier) => tier.frameId);
+
+function startOfNaturalWeek(date = new Date()) {
+    const result = new Date(date);
+    result.setHours(0, 0, 0, 0);
+    const day = result.getDay();
+    const offset = (day + 6) % 7;
+    result.setDate(result.getDate() - offset);
+    return result;
+}
+
+function endOfNaturalWeek(date = new Date()) {
+    const result = startOfNaturalWeek(date);
+    result.setDate(result.getDate() + 7);
+    result.setMilliseconds(result.getMilliseconds() - 1);
+    return result;
+}
+
+function getWeekKey(date = new Date()) {
+    return startOfNaturalWeek(date).toISOString().slice(0, 10);
+}
+
+function getPreviousWeekWindow(date = new Date()) {
+    const end = startOfNaturalWeek(date);
+    end.setMilliseconds(end.getMilliseconds() - 1);
+    const start = startOfNaturalWeek(end);
+    return { start, end, key: getWeekKey(start) };
+}
+
+function normalizeUserId(value) {
+    return String(value ?? '').trim().toLowerCase();
+}
+
+function getFrameTierForPoints(points = 0) {
+    const totalPoints = Number(points) || 0;
+    return [...DEFINITE_FRAME_TIERS].sort((left, right) => right.minPoints - left.minPoints)
+        .find((tier) => totalPoints >= tier.minPoints) || DEFINITE_FRAME_TIERS[0];
+}
+
+function getNextFrameTier(points = 0) {
+    const totalPoints = Number(points) || 0;
+    return FRAME_TIERS.find((tier) => totalPoints < tier.minPoints) || FRAME_TIERS[FRAME_TIERS.length - 1];
+}
+
+function resolveFrameIdForPoints(points = 0) {
+    return getFrameTierForPoints(points)?.frameId || 'bronce';
+}
+
+function roundRankingScore(score) {
+    return Math.round((Number(score) || 0) * 10) / 10;
+}
+
+function pickTopRankedUsers(entries, awards) {
+    const sorted = [...entries].sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        const leftComments = Number(left.commentsCount) || 0;
+        const rightComments = Number(right.commentsCount) || 0;
+        if (rightComments !== leftComments) return rightComments - leftComments;
+        if (right.createdAtMs !== left.createdAtMs) return right.createdAtMs - left.createdAtMs; // newer wins
+        return left.order - right.order;
+    });
+
+    const selected = new Map();
+
+    sorted.slice(0, 3).forEach((entry, index) => {
+        const award = awards[index] || 0;
+        if (award <= 0) return;
+        const current = selected.get(entry.userId);
+        if (!current || award > current.awardedPoints) {
+            selected.set(entry.userId, { ...entry, awardedPoints: award, rank: index + 1 });
+        }
+    });
+
+    return Array.from(selected.values());
+}
+
+function buildRankingPayload(entries) {
+    return entries.map((entry) => ({
+        rank: entry.rank,
+        videoId: entry.videoId,
+        videoTitle: entry.title,
+        category: entry.category,
+        score: roundRankingScore(entry.score),
+        likes: Number(entry.likes) || 0,
+        commentsCount: Number(entry.commentsCount) || 0,
+        username: entry.username,
+        userId: entry.userId,
+        team: entry.team || 'Sin equipo',
+        teamName: entry.teamName || 'Sin equipo',
+        position: entry.position || '---',
+        rating: entry.rating ?? 88,
+        profileImageUrl: entry.profileImageUrl ?? null,
+        teamImageUrl: entry.teamImageUrl ?? null,
+        frameImageId: entry.frameImageId ?? null,
+        frameId: entry.frameId ?? null,
+        mediaUrls: entry.mediaUrls || [],
+        mediaType: entry.mediaType || 'video',
+        url: entry.url,
+        awardedPoints: entry.awardedPoints || 0,
+    }));
+}
+
+async function getRankedVideosForWindow({ start, end, category }) {
+    const match = {
+        createdAt: { $gte: start, $lte: end },
+    };
+
+    if (category) {
+        match.category = buildNameRegex(category);
+    }
+
+    const pipeline = [
+        { $match: match },
+        { $sort: { createdAt: -1, _id: -1 } },
+        { $addFields: { videoIdStr: { $toString: '$_id' } } },
+        {
+            $lookup: {
+                from: 'comentarios',
+                localField: 'videoIdStr',
+                foreignField: 'videoId',
+                as: 'comments',
+            },
+        },
+        { $addFields: { commentsCount: { $size: '$comments' } } },
+        { $addFields: { uploaderKey: { $toLower: { $ifNull: ['$id_usuario', ''] } } } },
+        {
+            $lookup: {
+                from: 'perfiles',
+                let: { uploaderKey: '$uploaderKey' },
+                pipeline: [
+                    { $addFields: { emailKey: { $toLower: '$email' } } },
+                    { $match: { $expr: { $eq: ['$emailKey', '$$uploaderKey'] } } },
+                    { $project: { password: 0, emailKey: 0 } },
+                ],
+                as: 'uploader',
+            },
+        },
+        { $addFields: { uploader: { $first: '$uploader' } } },
+        { $project: { comments: 0, videoIdStr: 0, uploaderKey: 0 } },
+    ];
+
+    const videos = await db.collection('videos').aggregate(pipeline).toArray();
+
+    return Promise.all(videos.map(async (video, index) => {
+        const uploader = video.uploader || {};
+        const userId = normalizeUserId(uploader.email || video.id_usuario);
+        const likes = Number(video.likes) || 0;
+        const commentsCount = Number(video.commentsCount) || 0;
+        const cardData = uploader.teamId || uploader.frameId
+            ? await resolveCardData(uploader.teamId, uploader.frameId)
+            : { teamName: null, teamImageUrl: null, frameImageId: null, resolvedFrameId: null };
+
+        return {
+            order: index,
+            videoId: video._id.toString(),
+            title: video.title,
+            category: video.category,
+            likes,
+            commentsCount,
+            score: likes + (commentsCount * 1.5),
+            createdAtMs: new Date(video.createdAt || 0).getTime(),
+            url: video.url,
+            mediaUrls: video.mediaUrls || [],
+            mediaType: video.mediaType || 'video',
+            username: uploader.username || String(video.id_usuario || '').split('@')[0] || 'usuario',
+            userId,
+            team: cardData.teamName || 'Sin equipo',
+            teamName: cardData.teamName || 'Sin equipo',
+            position: uploader.position || '---',
+            rating: uploader.rating ?? 88,
+            profileImageUrl: uploader.profileImageUrl ?? null,
+            teamImageUrl: cardData.teamImageUrl ?? null,
+            frameImageId: cardData.frameImageId ?? null,
+            frameId: cardData.resolvedFrameId ?? uploader.frameId ?? null,
+        };
+    }));
+}
+
+async function buildWeeklyRankingsForWindow({ start, end }) {
+    const [generalVideos, rawCategoryDocs] = await Promise.all([
+        getRankedVideosForWindow({ start, end }),
+        db.collection('videos').aggregate([
+            { $match: { createdAt: { $gte: start, $lte: end } } },
+            { $group: { _id: '$category' } },
+            { $project: { _id: 0, category: '$_id' } },
+        ]).toArray(),
+    ]);
+
+    const categoryValues = rawCategoryDocs.map((r) => r.category);
+
+    const categories = [...new Set(
+        categoryValues
+            .map((value) => String(value ?? '').trim())
+            .filter(Boolean)
+    )].sort((left, right) => left.localeCompare(right, 'es', { sensitivity: 'base' }));
+
+    const general = buildRankingPayload(pickTopRankedUsers(generalVideos, WEEKLY_RANK_AWARDS.general));
+    const byCategory = {};
+
+    for (const category of categories) {
+        const categoryVideos = await getRankedVideosForWindow({ start, end, category });
+        byCategory[category] = buildRankingPayload(pickTopRankedUsers(categoryVideos, WEEKLY_RANK_AWARDS.category));
+    }
+
+    return { categories, general, byCategory };
+}
+
+async function applyWeeklyAwards(rankings, weekKey, window) {
+    const rankingRuns = db.collection('weekly_ranking_runs');
+    const existing = await rankingRuns.findOne({ weekKey });
+
+    if (existing?.processedAt) {
+        return existing;
+    }
+
+    const seenVideos = new Map();
+
+    const registerEntries = (items, scope) => {
+        items.forEach((item) => {
+            const current = seenVideos.get(item.videoId);
+            const candidate = {
+                scope,
+                weekKey,
+                videoId: item.videoId,
+                userId: normalizeUserId(item.userId),
+                username: item.username,
+                award: Number(item.awardedPoints) || 0,
+                rank: item.rank,
+                category: item.category || null,
+                score: item.score,
+            };
+
+            if (!current || candidate.award > current.award) {
+                seenVideos.set(item.videoId, candidate);
+            }
+        });
+    };
+
+    registerEntries(rankings.general || [], 'general');
+    Object.entries(rankings.byCategory || {}).forEach(([category, items]) => {
+        registerEntries(items.map((item) => ({ ...item, category })), `category:${category}`);
+    });
+
+    const awardedByUser = new Map();
+    for (const entry of seenVideos.values()) {
+        if (!entry.userId || entry.award <= 0) continue;
+        awardedByUser.set(entry.userId, (awardedByUser.get(entry.userId) || 0) + entry.award);
+    }
+
+    for (const [userId, points] of awardedByUser.entries()) {
+        const user = await db.collection('perfiles').findOne({
+            $or: [
+                { email: userId },
+                { username: userId },
+            ],
+        });
+
+        if (!user) continue;
+
+        const currentPoints = Number(user.points) || 0;
+        const nextPoints = currentPoints + points;
+        const nextFrameId = resolveFrameIdForPoints(nextPoints);
+
+        await db.collection('perfiles').updateOne(
+            { _id: user._id },
+            { $set: { points: nextPoints, frameId: nextFrameId } }
+        );
+    }
+
+    const runDoc = {
+        weekKey,
+        window: {
+            start: window.start,
+            end: window.end,
+        },
+        awards: Array.from(seenVideos.values()),
+        processedAt: new Date(),
+    };
+
+    if (existing?._id) {
+        await rankingRuns.updateOne({ _id: existing._id }, { $set: runDoc });
+        return { ...existing, ...runDoc };
+    }
+
+    const insertResult = await rankingRuns.insertOne(runDoc);
+    return { _id: insertResult.insertedId, ...runDoc };
+}
+
+async function processPendingWeeklyRankings() {
+    if (!db) return;
+
+    try {
+        const window = getPreviousWeekWindow(new Date());
+        const rankings = await buildWeeklyRankingsForWindow(window);
+        await applyWeeklyAwards(rankings, window.key, window);
+    } catch (error) {
+        console.error('Error procesando rankings semanales:', error.message);
+    }
+}
+
 function cleanupUploadedFiles(files = []) {
     files.forEach((file) => {
         if (file?.path && fs.existsSync(file.path)) {
@@ -185,10 +498,14 @@ app.get('/api/videos', async (req, res) => {
 
 app.get('/api/videos/categories', async (req, res) => {
     try {
-        const rawCategories = await db.collection('videos').distinct('category');
-        const categoriesMap = new Map();
+        const rawCategoryDocs = await db.collection('videos').aggregate([
+            { $group: { _id: '$category' } },
+            { $project: { _id: 0, category: '$_id' } },
+        ]).toArray();
 
-        rawCategories.forEach((value) => {
+        const categoriesMap = new Map();
+        rawCategoryDocs.forEach((row) => {
+            const value = row?.category ?? row ?? '';
             const trimmed = String(value ?? '').trim();
             if (!trimmed) return;
             const key = trimmed.toLowerCase();
@@ -235,6 +552,80 @@ app.get('/api/categorias', async (req, res) => {
     } catch (error) {
         console.error('Error al obtener categorias:', error);
         return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
+    }
+});
+
+app.get('/api/rankings/weekly', async (req, res) => {
+    try {
+        const categoryRaw = String(req.query.category || '').trim();
+        const wantCurrent = String(req.query.current || '').toLowerCase() === 'true' || String(req.query.current || '') === '1';
+
+        const window = wantCurrent ?
+            { start: startOfNaturalWeek(new Date()), end: endOfNaturalWeek(new Date()), key: getWeekKey(new Date()) }
+            : getPreviousWeekWindow(new Date());
+
+        const rankings = await buildWeeklyRankingsForWindow(window);
+
+        if (categoryRaw && categoryRaw.toLowerCase() !== 'todos') {
+            const selectedCategory = Object.keys(rankings.byCategory).find(
+                (item) => item.localeCompare(categoryRaw, 'es', { sensitivity: 'base' }) === 0
+            ) || null;
+
+            return res.json({
+                week: window,
+                categories: rankings.categories,
+                general: rankings.general,
+                selectedCategory: selectedCategory || categoryRaw,
+                selectedRanking: selectedCategory ? rankings.byCategory[selectedCategory] : [],
+                byCategory: rankings.byCategory,
+            });
+        }
+
+        return res.json({
+            week: window,
+            categories: rankings.categories,
+            general: rankings.general,
+            selectedCategory: 'Todos',
+            selectedRanking: rankings.general,
+            byCategory: rankings.byCategory,
+        });
+    } catch (error) {
+        console.error('Error GET /api/rankings/weekly', error.message);
+        return res.status(500).json({ message: 'Error obteniendo ranking semanal' });
+    }
+});
+
+app.get('/api/usuarios/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await db.collection('perfiles').findOne(buildIdFilter(id));
+
+        if (!user) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        const cardData = await resolveCardData(user.teamId, user.frameId);
+        const points = Number(user.points) || 0;
+
+        return res.json({
+            id: extractDocId(user),
+            username: user.username,
+            email: user.email,
+            position: user.position,
+            profileImageUrl: user.profileImageUrl ?? null,
+            teamId: cardData.resolvedTeamId,
+            teamName: cardData.teamName ?? 'Sin equipo',
+            teamImageUrl: cardData.teamImageUrl,
+            frameId: cardData.resolvedFrameId,
+            frameImageId: cardData.frameImageId,
+            frameImageUrl: cardData.frameImageId,
+            points,
+            currentFrame: getFrameTierForPoints(points)?.frameId || 'bronce',
+            nextFrame: getNextFrameTier(points)?.frameId || null,
+        });
+    } catch (error) {
+        console.error('Error GET /api/usuarios/:id', error.message);
+        return res.status(500).json({ message: 'Error obteniendo usuario' });
     }
 });
 
@@ -1169,6 +1560,7 @@ async function handleCreateUser(req, res) {
             teamId,
             frameId: resolvedFrameId,
             profileImageUrl: resolvedProfileImageUrl,
+            points: 0,
             createdAt: new Date(),
         };
 
@@ -1193,6 +1585,7 @@ async function handleCreateUser(req, res) {
             frameId: cardData.resolvedFrameId,
             frameImageId: cardData.frameImageId,
             frameImageUrl: cardData.frameImageId,
+            points: Number(persistedUser.points) || 0,
         });
     } catch (err) {
         if (err?.code === 11000 && (String(err?.message || '').includes('username') || err?.keyPattern?.username)) {
@@ -1334,6 +1727,7 @@ async function handleUpdateUser(req, res) {
             frameId: cardData.resolvedFrameId,
             frameImageId: cardData.frameImageId,
             frameImageUrl: cardData.frameImageId,
+            points: Number(updatedUser.points) || 0,
         });
     } catch (err) {
         if (err?.code === 11000 && (String(err?.message || '').includes('username') || err?.keyPattern?.username)) {
@@ -1392,6 +1786,7 @@ async function handleLogin(req, res) {
             frameId: cardData.resolvedFrameId,
             frameImageId: cardData.frameImageId,
             frameImageUrl: cardData.frameImageId,
+            points: Number(user.points) || 0,
         });
     } catch (err) {
         console.error('❌ Error en POST /api/login', err.message);
@@ -1419,6 +1814,13 @@ async function startServer() {
         } catch (indexErr) {
             console.error('⚠️ No se pudo crear indice unico para username:', indexErr.message);
         }
+
+        await processPendingWeeklyRankings();
+        setInterval(() => {
+            processPendingWeeklyRankings().catch((error) => {
+                console.error('Error en el procesador de rankings semanales:', error.message);
+            });
+        }, 60 * 60 * 1000);
 
         console.log("🔥 Conectado a MongoDB Atlas");
         app.listen(PORT, () => console.log(`🚀 Servidor en puerto ${PORT}`));

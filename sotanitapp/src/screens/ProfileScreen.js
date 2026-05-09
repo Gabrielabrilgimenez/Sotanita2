@@ -45,8 +45,37 @@ function normalizeRemoteUri(value) {
   return null;
 }
 
+const FRAME_TIERS = [
+  { minPoints: 0, label: 'Bronce' },
+  { minPoints: 10, label: 'Plata' },
+  { minPoints: 50, label: 'Oro' },
+  { minPoints: 100, label: 'Platino' },
+  { minPoints: 250, label: null },
+];
+
+function getRankProgress(points = 0) {
+  const totalPoints = Number(points) || 0;
+  const tierIndex = FRAME_TIERS.reduce((accumulator, tier, index) => (
+    totalPoints >= tier.minPoints ? index : accumulator
+  ), 0);
+  const currentTier = FRAME_TIERS[tierIndex] || FRAME_TIERS[0];
+  const nextTier = FRAME_TIERS[tierIndex + 1] || null;
+  const nextMin = nextTier?.minPoints ?? currentTier.minPoints;
+  const progress = nextTier && nextMin > currentTier.minPoints
+    ? Math.min(1, Math.max(0, (totalPoints - currentTier.minPoints) / (nextMin - currentTier.minPoints)))
+    : 1;
+
+  return {
+    points: totalPoints,
+    currentTier,
+    nextTier,
+    progress,
+    pointsToNext: nextTier ? Math.max(0, nextMin - totalPoints) : 0,
+  };
+}
+
 export default function ProfileScreen({ navigation, hideProfileCard = false }) {
-  const { user, isLoggedIn, guestMode, logout, updateUser } = useAuth();
+  const { user, isLoggedIn, guestMode, logout, updateUser, refreshUser } = useAuth();
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
 
   const [activeTab, setActiveTab] = useState('uploaded');
@@ -356,8 +385,10 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 
   const requireLogin = !isLoggedIn && guestMode;
 
-  const loadProfileVideos = useCallback(async () => {
-    if (!isLoggedIn || !user?.email) {
+  const loadProfileVideos = useCallback(async (emailOverride) => {
+    const currentEmail = String(emailOverride || user?.email || '').trim().toLowerCase();
+
+    if (!isLoggedIn || !currentEmail) {
       setUploadedVideos([]);
       setLikedVideos([]);
       return;
@@ -365,7 +396,6 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 
     setLoadingVideos(true);
     try {
-      const currentUserId = String(user.email).trim().toLowerCase();
       const allVideos = await getAllVideos(20, 50);
 
       const normalized = allVideos.map((video) => {
@@ -378,11 +408,11 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           ...video,
           user: uploader ? uploader.split('@')[0] : 'usuario',
           uploader,
-          hasLiked: likedBy.includes(currentUserId),
+          hasLiked: likedBy.includes(currentEmail),
         };
       });
 
-      setUploadedVideos(normalized.filter((video) => video.uploader === currentUserId));
+      setUploadedVideos(normalized.filter((video) => video.uploader === currentEmail));
       setLikedVideos(normalized.filter((video) => video.hasLiked));
     } catch (error) {
       console.error('Error cargando videos del perfil:', error);
@@ -393,8 +423,30 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 
   useFocusEffect(
     useCallback(() => {
-      loadProfileVideos();
-    }, [loadProfileVideos])
+      let cancelled = false;
+
+      const syncProfile = async () => {
+        if (isLoggedIn && refreshUser) {
+          try {
+            const freshUser = await refreshUser();
+            if (!cancelled) {
+              await loadProfileVideos(freshUser?.email || user?.email);
+            }
+            return;
+          } catch (error) {
+            console.error('Error sincronizando perfil:', error);
+          }
+        }
+
+        await loadProfileVideos();
+      };
+
+      syncProfile();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [isLoggedIn, loadProfileVideos, refreshUser, user?.email])
   );
 
   const videosToShow = activeTab === 'uploaded' ? uploadedVideos : likedVideos;
@@ -461,6 +513,33 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                   </Pressable>
                 </View>
               ))}
+            </View>
+
+            <View style={[styles.pointsCard, { marginHorizontal: spacing.xl, marginTop: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border }]}> 
+              <View style={styles.pointsHeader}>
+                <View>
+                  <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Puntos</Text>
+                  <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.xl * textScale }}>
+                    {getRankProgress(profile.points).points}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Rango</Text>
+                  <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
+                    {getRankProgress(profile.points).currentTier?.label || 'Pendiente'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={[styles.progressTrack, { backgroundColor: `${colors.border}80` }]}> 
+                <View style={[styles.progressFill, { width: `${Math.round(getRankProgress(profile.points).progress * 100)}%`, backgroundColor: colors.primary }]} />
+              </View>
+
+              <Text style={{ color: colors.textMuted, marginTop: spacing.sm, fontSize: typography.sizes.sm * textScale }}>
+                {getRankProgress(profile.points).nextTier?.label
+                  ? `Te faltan ${getRankProgress(profile.points).pointsToNext} puntos para desbloquear ${getRankProgress(profile.points).nextTier.label}.`
+                  : 'Has desbloqueado el rango más alto preparado. El siguiente marco queda pendiente de definir.'}
+              </Text>
             </View>
 
             <View style={[styles.teamActionsWrap, { paddingHorizontal: spacing.xl, marginTop: spacing.md }]}> 
@@ -1045,6 +1124,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  pointsCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+  },
+  pointsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  progressTrack: {
+    marginTop: 14,
+    height: 12,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
   },
   crestOverlayCard: {
     alignItems: 'center',

@@ -115,6 +115,27 @@ export async function getCategories() {
   return data.categories || [];
 }
 
+export async function getWeeklyRankings(category, current = false) {
+  const params = new URLSearchParams();
+  const normalizedCategory = String(category ?? '').trim();
+
+  if (normalizedCategory && normalizedCategory.toLowerCase() !== 'todos') {
+    params.set('category', normalizedCategory);
+  }
+
+  if (current) params.set('current', 'true');
+
+  const query = params.toString();
+  const response = await fetch(buildApiUrl(`/api/rankings/weekly${query ? `?${query}` : ''}`));
+  return parseResponse(response);
+}
+
+export async function getUserProfile(userId) {
+  const encoded = encodeURIComponent(userId || '');
+  const response = await fetch(buildApiUrl(`/api/usuarios/${encoded}`));
+  return parseResponse(response);
+}
+
 export async function getVideoCategories() {
   return getCategories();
 }

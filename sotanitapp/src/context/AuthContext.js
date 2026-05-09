@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createUser, getTeamIdByName, updateUser as updateUserAPI, loginUser as loginUserAPI } from '../api/backend';
+import { createUser, getTeamIdByName, getUserProfile, updateUser as updateUserAPI, loginUser as loginUserAPI } from '../api/backend';
 
 const AuthContext = createContext(undefined);
 const AUTH_STORAGE_KEY = 'sotanita_auth_session_v1';
@@ -19,6 +19,22 @@ async function clearPersistedSession() {
   } catch (error) {
     console.error('Error limpiando sesion:', error);
   }
+}
+
+function normalizeUserData(userData) {
+  return {
+    id: userData.id,
+    username: userData.username,
+    email: userData.email,
+    position: userData.position,
+    profileImageUrl: userData.profileImageUrl || null,
+    team: userData.teamName || userData.team || 'Sin equipo',
+    teamId: userData.teamId,
+    frameId: userData.frameId,
+    teamImageUrl: userData.teamImageUrl,
+    frameImageId: userData.frameImageUrl || userData.frameImageId,
+    points: Number(userData.points) || 0,
+  };
 }
 
 export function AuthProvider({ children }) {
@@ -59,19 +75,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     try {
       const userData = await loginUserAPI(email, password);
-
-      const normalizedUser = {
-        id: userData.id,
-        username: userData.username,
-        email: userData.email,
-        position: userData.position,
-        profileImageUrl: userData.profileImageUrl || null,
-        team: userData.teamName,
-        teamId: userData.teamId,
-        frameId: userData.frameId,
-        teamImageUrl: userData.teamImageUrl,
-        frameImageId: userData.frameImageUrl || userData.frameImageId,
-      };
+      const normalizedUser = normalizeUserData(userData);
 
       setIsLoggedIn(true);
       setGuestMode(false);
@@ -107,18 +111,11 @@ export function AuthProvider({ children }) {
       profileImageUrl: data.profileImageUrl,
     });
 
-    const normalizedUser = {
-      id: createdUser.id,
-      username: createdUser.username,
-      email: createdUser.email,
-      position: createdUser.position,
+    const normalizedUser = normalizeUserData({
+      ...createdUser,
       profileImageUrl: createdUser.profileImageUrl || data.profileImageUrl || null,
-      team: createdUser.teamName || data.team,
-      teamId: createdUser.teamId,
-      frameId: createdUser.frameId,
-      teamImageUrl: createdUser.teamImageUrl,
-      frameImageId: createdUser.frameImageUrl || createdUser.frameImageId,
-    };
+      teamName: createdUser.teamName || data.team,
+    });
 
     setIsLoggedIn(true);
     setGuestMode(false);
@@ -184,16 +181,12 @@ export function AuthProvider({ children }) {
 
           const mergedUser = {
             ...prev,
-            id: updatedUser.id ?? prev.id,
-            username: updatedUser.username ?? prev.username,
-            email: updatedUser.email ?? prev.email,
-            position: updatedUser.position ?? prev.position,
-            profileImageUrl: updatedUser.profileImageUrl ?? data.profileImageUrl ?? prev.profileImageUrl,
-            team: updatedUser.teamName ?? data.team ?? prev.team,
-            teamId: updatedUser.teamId ?? prev.teamId,
-            frameId: updatedUser.frameId ?? prev.frameId,
-            teamImageUrl: updatedUser.teamImageUrl ?? prev.teamImageUrl,
-            frameImageId: updatedUser.frameImageUrl ?? updatedUser.frameImageId ?? prev.frameImageId,
+            ...normalizeUserData({
+              ...prev,
+              ...updatedUser,
+              profileImageUrl: updatedUser.profileImageUrl ?? data.profileImageUrl ?? prev.profileImageUrl,
+              teamName: updatedUser.teamName ?? data.team ?? prev.team,
+            }),
           };
 
           persistSession({
@@ -225,6 +218,29 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const refreshUser = useCallback(async () => {
+    if (!user?.id) {
+      return null;
+    }
+
+    const freshUser = await getUserProfile(user.id);
+    const normalizedUser = normalizeUserData({
+      ...user,
+      ...freshUser,
+      teamName: freshUser.teamName ?? user.team,
+    });
+
+    setUser(normalizedUser);
+
+    await persistSession({
+      isLoggedIn: true,
+      guestMode: false,
+      user: normalizedUser,
+    });
+
+    return normalizedUser;
+  }, [user?.id, user?.team]);
+
   const value = useMemo(
     () => ({
       isLoggedIn,
@@ -236,8 +252,9 @@ export function AuthProvider({ children }) {
       logout,
       enterAsGuest,
       updateUser,
+      refreshUser,
     }),
-    [isLoggedIn, guestMode, user, authLoading]
+    [isLoggedIn, guestMode, user, authLoading, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
