@@ -500,10 +500,13 @@ export default function TabNavigator({ navigation }) {
                 style={{
                   color: colors.text,
                   fontWeight: typography.weights.bold,
-                  fontSize: typography.sizes.md * textScale,
+                  fontFamily: typography.families.nougat,
+                  fontSize: typography.sizes.xl * textScale,
+                  textAlign: 'center',
+                  flex: 1,
                 }}
               >
-                Notificaciones
+                NOTIFICACIONES
               </Text>
               <Pressable onPress={() => setShowNotifications(false)}>
                 <Ionicons name="close" size={20} color={colors.text} />

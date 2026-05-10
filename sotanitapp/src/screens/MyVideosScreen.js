@@ -530,7 +530,7 @@ export default function MyVideosScreen({ navigation, route }) {
             ]}
           >
             <View style={[styles.sheetHeader, { borderBottomColor: colors.border }]}> 
-              <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale }}>
+              <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontFamily: typography.families.nougat, fontSize: typography.sizes.xl * textScale, textAlign: 'left', flex: 1 }}>
                 Comentarios
               </Text>
               <Pressable onPress={closeComments}>

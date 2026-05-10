@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 import FifaCard from '../components/FifaCard';
 import LoadingOverlay from '../components/LoadingOverlay';
+import AppButton from '../components/AppButton';
 
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
@@ -66,6 +67,7 @@ const FeedVideoItem = ({
   height,
   onLikePress,
   onCommentPress,
+  onSharePress,
   commentsCount,
   liking,
   isAudioPlaying,
@@ -206,7 +208,7 @@ const FeedVideoItem = ({
           <Text style={styles.actionText}>{commentsCount}</Text>
         </Pressable>
 
-        <Pressable style={styles.actionWrap}>
+        <Pressable style={styles.actionWrap} onPress={() => onSharePress(video.id)}>
           <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}>
             <Ionicons name="share-social-outline" size={26} color={colors.white} />
           </View>
@@ -233,12 +235,15 @@ export default function HomeScreen({ navigation, route }) {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [commentsByVideo, setCommentsByVideo] = useState({});
   const [carouselIndexByVideo, setCarouselIndexByVideo] = useState({});
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [shareVideoId, setShareVideoId] = useState(null);
+  const [pendingSharedVideoId, setPendingSharedVideoId] = useState(null);
   const [pendingDeleteComment, setPendingDeleteComment] = useState(null);
   const [loadingNewComment, setLoadingNewComment] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
@@ -446,16 +451,6 @@ export default function HomeScreen({ navigation, route }) {
       console.error('Error cargando comentarios:', error);
     }
   }, [mapComment]);
-
-  useEffect(() => {
-    const targetVideoId = route?.params?.videoId;
-    if (!targetVideoId) {
-      return;
-    }
-
-    openComments(targetVideoId);
-    navigation.setParams({ videoId: undefined });
-  }, [navigation, openComments, route?.params?.videoId]);
 
   const closeComments = useCallback(() => {
     Animated.timing(commentsAnim, {
@@ -874,6 +869,121 @@ export default function HomeScreen({ navigation, route }) {
     }));
   }, []);
 
+  const buildShareUrl = useCallback((videoId) => {
+    const encodedVideoId = encodeURIComponent(String(videoId || ''));
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}/feed?videoId=${encodedVideoId}`;
+    }
+
+    return `sotanitapp://feed?videoId=${encodedVideoId}`;
+  }, []);
+
+  const writeToClipboard = useCallback(async (value) => {
+    if (Platform.OS !== 'web') {
+      try {
+        const clipboardModule = require('react-native/Libraries/Components/Clipboard/Clipboard');
+        const clipboard = clipboardModule?.default || clipboardModule;
+
+        if (clipboard?.setString) {
+          clipboard.setString(value);
+          return true;
+        }
+      } catch (error) {
+        // Fall through to other strategies.
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const textArea = document.createElement('textarea');
+      textArea.value = value;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return copied;
+    }
+
+    return false;
+  }, []);
+
+  const handleSharePress = useCallback((videoId) => {
+    if (!videoId) return;
+    setShareVideoId(videoId);
+    setShowShareModal(true);
+  }, []);
+
+  const closeShareModal = useCallback(() => {
+    setShowShareModal(false);
+    setShareVideoId(null);
+  }, []);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!shareVideoId) return;
+
+    const shareUrl = buildShareUrl(shareVideoId);
+
+    try {
+      const copied = await writeToClipboard(shareUrl);
+      if (!copied) {
+        Alert.alert('No se pudo copiar', 'No fue posible copiar el enlace en este dispositivo.');
+        return;
+      }
+
+      closeShareModal();
+      Alert.alert('Listo', 'Enlace copiado al portapapeles.');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo copiar el enlace.');
+    }
+  }, [buildShareUrl, closeShareModal, shareVideoId, writeToClipboard]);
+
+  useEffect(() => {
+    const targetVideoId = route?.params?.videoId;
+    if (!targetVideoId) {
+      return;
+    }
+
+    setSelectedCategory('');
+    setPendingSharedVideoId(String(targetVideoId));
+  }, [route?.params?.videoId]);
+
+  useEffect(() => {
+    if (!pendingSharedVideoId || !containerHeight || visibleVideos.length === 0) {
+      return;
+    }
+
+    const targetIndex = visibleVideos.findIndex((video) => String(video.id) === String(pendingSharedVideoId));
+
+    if (targetIndex >= 0) {
+      listRef.current?.scrollToOffset({ offset: targetIndex * containerHeight, animated: false });
+      setActiveIndex(targetIndex);
+      activeIndexRef.current = targetIndex;
+      setPendingSharedVideoId(null);
+      navigation.setParams({ videoId: undefined });
+      return;
+    }
+
+    if (hasMore && !loadingMore && !loading) {
+      fetchMoreFeedVideos();
+      return;
+    }
+
+    if (!hasMore && !loadingMore && !loading) {
+      setPendingSharedVideoId(null);
+      navigation.setParams({ videoId: undefined });
+    }
+  }, [containerHeight, fetchMoreFeedVideos, hasMore, loading, loadingMore, navigation, pendingSharedVideoId, visibleVideos]);
+
   return (
     <View style={styles.root}>
       <View style={styles.categoryBar}>
@@ -998,6 +1108,7 @@ export default function HomeScreen({ navigation, route }) {
                height={containerHeight}
                onLikePress={handleLike}
                onCommentPress={openComments}
+               onSharePress={handleSharePress}
                commentsCount={item.commentsCount ?? (commentsByVideo[item.id] || []).length}
                isAudioPlaying={isAudioPlaying}
               isRecording={isRecording}
@@ -1053,7 +1164,9 @@ export default function HomeScreen({ navigation, route }) {
             ]}
           >
             <View style={[styles.commentsHeader, { borderBottomColor: colors.border }]}> 
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 18 }}>Comentarios</Text>
+              <Text style={{ color: colors.text, fontWeight: '700', fontFamily: typography.families.nougat, fontSize: typography.sizes.xl * textScale, textAlign: 'left', flex: 1 }}>
+                COMENTARIOS
+              </Text>
               <Pressable onPress={closeComments}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </Pressable>
@@ -1195,6 +1308,29 @@ export default function HomeScreen({ navigation, route }) {
           </Animated.View>
         </View>
       </Modal>
+
+      <Modal visible={showShareModal} transparent animationType="fade" onRequestClose={closeShareModal}>
+        <Pressable style={styles.shareOverlay} onPress={closeShareModal}>
+          <Pressable style={[styles.shareCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: typography.sizes.xl * textScale, textAlign: 'center', marginBottom: 16 }}>
+              Compartir video
+            </Text>
+
+            <AppButton
+              title="COPIAR ENLACE"
+              onPress={handleCopyShareLink}
+              variant="primary"
+              style={{ marginBottom: 12 }}
+            />
+
+            <AppButton
+              title="ENVIAR A FAN ZONE"
+              onPress={() => {}}
+              variant="danger"
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
       <LoadingOverlay visible={loading && videos.length === 0 || loadingNewComment} />
     </View>
   );
@@ -1221,6 +1357,8 @@ const styles = StyleSheet.create({
   categoryOverlay: { flex: 1, justifyContent: 'center', padding: 18 },
   categoryMenu: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
   categoryMenuItem: { paddingVertical: 14, paddingHorizontal: 16 },
+  shareOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.72)' },
+  shareCard: { width: '100%', maxWidth: 360, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: '#000', shadowOpacity: 0.28, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   listWrap: { flex: 1 },
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },

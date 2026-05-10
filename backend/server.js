@@ -1517,18 +1517,22 @@ async function handleCreateUser(req, res) {
         let resolvedTeamName = teamName;
 
         if (teamId) {
-            const teamById = await db.collection('fondo').findOne(buildIdFilter(teamId));
+            let teamById = await findFondoById(teamId);
             if (!teamById) {
-                return res.status(404).json({ message: 'teamId no existe en fondo' });
+                teamById = await findEquiposById(teamId);
+            }
+            if (!teamById) {
+                return res.status(404).json({ message: 'teamId no existe' });
             }
             teamId = extractDocId(teamById);
             resolvedTeamName = teamById.name ?? teamById.Name;
         }
 
         if (!teamId && teamName) {
-            const teamDoc = await db.collection('fondo').findOne({
-                $or: [{ name: buildNameRegex(teamName) }, { Name: buildNameRegex(teamName) }],
-            });
+            let teamDoc = await findFondoByName(teamName);
+            if (!teamDoc) {
+                teamDoc = await findEquiposByName(teamName);
+            }
             if (!teamDoc) {
                 return res.status(404).json({ message: 'Equipo no encontrado para el registro' });
             }
@@ -1672,9 +1676,10 @@ async function handleUpdateUser(req, res) {
         }
 
         if (teamName) {
-            const teamDoc = await db.collection('fondo').findOne({
-                $or: [{ name: buildNameRegex(teamName) }, { Name: buildNameRegex(teamName) }],
-            });
+            let teamDoc = await findFondoByName(teamName);
+            if (!teamDoc) {
+                teamDoc = await findEquiposByName(teamName);
+            }
 
             if (!teamDoc) {
                 return res.status(404).json({ message: 'Equipo no encontrado' });
@@ -1682,7 +1687,10 @@ async function handleUpdateUser(req, res) {
 
             updateData.teamId = extractDocId(teamDoc);
         } else if (teamId) {
-            const teamDoc = await db.collection('fondo').findOne(buildIdFilter(teamId));
+            let teamDoc = await findFondoById(teamId);
+            if (!teamDoc) {
+                teamDoc = await findEquiposById(teamId);
+            }
             if (!teamDoc) {
                 return res.status(404).json({ message: 'Equipo no encontrado' });
             }

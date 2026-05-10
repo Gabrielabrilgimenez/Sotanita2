@@ -632,9 +632,8 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                   item={video}
                   variant={activeTab === 'uploaded' ? 'uploaded' : 'liked'}
                   onPress={() => {
-                    navigation.navigate('MyVideos', {
+                    navigation.navigate('Home', {
                       videoId: video.id,
-                      sourceTab: activeTab,
                     });
                   }}
                 />
