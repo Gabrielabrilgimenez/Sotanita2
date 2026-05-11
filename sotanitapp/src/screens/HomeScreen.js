@@ -74,10 +74,12 @@ const FeedVideoItem = ({
   isRecording,
   carouselIndex,
   onCarouselIndexChange,
+  doubleTapReaction = 'heart',
 }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
   const lastTapRef = useRef(0);
+  const tapFeedbackAnim = useRef(new Animated.Value(0)).current;
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -87,6 +89,26 @@ const FeedVideoItem = ({
   const isVideo = mediaType === 'video';
   const uploaderCard = video?.uploaderCard || null;
   const uploaderName = uploaderCard?.username || (video.id_usuario ? video.id_usuario.split('@')[0] : 'usuario');
+  const tapFeedbackGlyph = doubleTapReaction === 'ball' ? '⚽' : '❤️';
+
+  const playTapFeedback = useCallback(() => {
+    tapFeedbackAnim.stopAnimation(() => {
+      tapFeedbackAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(tapFeedbackAnim, {
+          toValue: 1,
+          duration: 160,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tapFeedbackAnim, {
+          toValue: 0,
+          duration: 220,
+          delay: 120,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, [tapFeedbackAnim]);
 
   useEffect(() => {
     if (!isVideo) return;
@@ -122,7 +144,8 @@ const FeedVideoItem = ({
   const handleMediaTap = () => {
     const now = Date.now();
     if (now - lastTapRef.current < 250) {
-      onLikePress(video);
+      playTapFeedback();
+      onLikePress(video, { forceLike: true });
     }
     lastTapRef.current = now;
   };
@@ -154,6 +177,36 @@ const FeedVideoItem = ({
           resizeMode="cover"
         />
       )}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.tapFeedbackOverlay,
+          {
+            opacity: tapFeedbackAnim.interpolate({
+              inputRange: [0, 0.18, 1],
+              outputRange: [0, 1, 0],
+            }),
+            transform: [
+              {
+                scale: tapFeedbackAnim.interpolate({
+                  inputRange: [0, 0.18, 1],
+                  outputRange: [0.55, 1.18, 1.32],
+                }),
+              },
+              {
+                translateY: tapFeedbackAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [10, -18],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={[styles.tapFeedbackBubble, { backgroundColor: `${colors.black}88` }]}>
+          <Text style={styles.tapFeedbackGlyph}>{tapFeedbackGlyph}</Text>
+        </View>
+      </Animated.View>
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.8)']}
         style={styles.bottomGradient}
@@ -361,7 +414,7 @@ export default function HomeScreen({ navigation, route }) {
     }
   }, [user?.email, selectedCategory]);
 
-  const handleLike = useCallback(async (video) => {
+  const handleLike = useCallback(async (video, options = {}) => {
     if (!isLoggedIn || !user?.email) {
       Alert.alert('Inicia sesion', 'Debes iniciar sesion para gestionar likes.');
       return;
@@ -370,24 +423,29 @@ export default function HomeScreen({ navigation, route }) {
     if (!video?.id || likingVideoId === video.id) return;
 
     const wasLiked = Boolean(video.hasLiked);
+    const forceLike = Boolean(options.forceLike);
+
+    if (forceLike && wasLiked) return;
 
     setLikingVideoId(video.id);
+
+    const nextLiked = forceLike ? true : !wasLiked;
 
     // Actualizacion optimista para una respuesta instantanea en UI.
     setVideos((prev) => prev.map((item) => (
       item.id === video.id
         ? {
             ...item,
-            likes: wasLiked
-              ? Math.max(0, Number(item.likes || 0) - 1)
-              : Number(item.likes || 0) + 1,
-            hasLiked: !wasLiked,
+            likes: nextLiked
+              ? Number(item.likes || 0) + (wasLiked ? 0 : 1)
+              : Math.max(0, Number(item.likes || 0) - 1),
+            hasLiked: nextLiked,
           }
         : item
     )));
 
     try {
-      const response = wasLiked
+      const response = !forceLike && wasLiked
         ? await unlikeVideo(video.id, user.email)
         : await likeVideo(video.id, user.email);
 
@@ -1115,6 +1173,7 @@ export default function HomeScreen({ navigation, route }) {
                liking={likingVideoId === item.id}
               carouselIndex={carouselIndexByVideo[item.id] || 0}
               onCarouselIndexChange={(nextIndex) => handleCarouselIndexChange(item.id, nextIndex)}
+              doubleTapReaction="ball"
             />
           )}
           keyExtractor={(item) => item.id.toString()}
@@ -1368,6 +1427,25 @@ const styles = StyleSheet.create({
   dotsRow: { position: 'absolute', bottom: 18, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
   dot: { height: 6, borderRadius: 3 },
   bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%' },
+  tapFeedbackOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tapFeedbackBubble: {
+    minWidth: 88,
+    minHeight: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  tapFeedbackGlyph: {
+    fontSize: 42,
+    textAlign: 'center',
+  },
   infoWrapper: { position: 'absolute', left: 16, right: 80, zIndex: 10 },
   title: { marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
   description: { fontWeight: '500', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
