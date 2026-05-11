@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking } from 'react-native';
+import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -15,9 +16,76 @@ import LoadingOverlay from '../components/LoadingOverlay';
 import AppButton from '../components/AppButton';
 import StrokeText from '../components/StrokeText';
 
+const isNonMobileDevice = () => {
+  if (Platform.OS !== 'web') {
+    return Device.deviceType !== Device.DeviceType.PHONE;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.innerWidth >= 600;
+};
+
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
+};
+
+const SHARE_MESSAGE = 'Mira este video en la Sotanitapp';
+const ANDROID_X_URL = 'https://play.google.com/store/apps/details?id=com.twitter.android';
+const IOS_X_URL = 'https://apps.apple.com/us/app/x/id333903271';
+const ANDROID_WHATSAPP_URL = 'https://play.google.com/store/apps/details?id=com.whatsapp';
+const IOS_WHATSAPP_URL = 'https://apps.apple.com/us/app/whatsapp-messenger/id310633997';
+const ANDROID_INSTAGRAM_URL = 'https://play.google.com/store/apps/details?id=com.instagram.android';
+const IOS_INSTAGRAM_URL = 'https://apps.apple.com/us/app/instagram/id389801252';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'http://localhost:8081';
+
+const getStoreUrlForPlatform = (appName) => {
+  const normalizedAppName = String(appName || '').toLowerCase();
+
+  let androidUrl = ANDROID_X_URL;
+  let iosUrl = IOS_X_URL;
+
+  if (normalizedAppName === 'whatsapp') {
+    androidUrl = ANDROID_WHATSAPP_URL;
+    iosUrl = IOS_WHATSAPP_URL;
+  } else if (normalizedAppName === 'instagram') {
+    androidUrl = ANDROID_INSTAGRAM_URL;
+    iosUrl = IOS_INSTAGRAM_URL;
+  }
+
+  if (Platform.OS === 'android') {
+    return androidUrl;
+  }
+
+  if (Platform.OS === 'ios') {
+    return iosUrl;
+  }
+
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
+    const userAgent = navigator.userAgent || '';
+
+    if (/iphone|ipad|ipod/i.test(userAgent)) {
+      return iosUrl;
+    }
+
+    if (/android/i.test(userAgent)) {
+      return androidUrl;
+    }
+  }
+
+  return androidUrl;
+};
+
+const isDesktopLikeWeb = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.innerWidth >= 900;
 };
 
 const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
@@ -279,6 +347,7 @@ export default function HomeScreen({ navigation, route }) {
   const { colors, typography, textScale, darkMode, highContrast } = useAppTheme();
   const isFocused = useIsFocused();
   const { user, isLoggedIn } = useAuth();
+  const instagramDisabled = isNonMobileDevice();
   
   const [videos, setVideos] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -993,11 +1062,54 @@ export default function HomeScreen({ navigation, route }) {
     const buildShareUrl = useCallback((videoId) => {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
-        return `${window.location.origin}/feed?videoId=${encodedVideoId}`;
+      if (Platform.OS === 'web') {
+        // Usar endpoint del backend como intermediario para meta tags en RRSS
+        return `${BACKEND_URL}/video-preview?videoId=${encodedVideoId}`;
       }
 
       return `sotanitapp://feed?videoId=${encodedVideoId}`;
+    }, []);
+
+    const openShareDestination = useCallback(async ({ appUrl, webUrl, appStoreName }) => {
+      if (Platform.OS === 'web') {
+        if (isDesktopLikeWeb()) {
+          if (typeof window !== 'undefined') {
+            window.open(webUrl, '_blank', 'noopener,noreferrer');
+          }
+          return;
+        }
+
+        if (typeof window !== 'undefined') {
+          const fallbackUrl = getStoreUrlForPlatform(appStoreName);
+          let fallbackTimer = null;
+
+          const handleVisibilityChange = () => {
+            if (document.visibilityState !== 'visible' && fallbackTimer) {
+              clearTimeout(fallbackTimer);
+              fallbackTimer = null;
+              document.removeEventListener('visibilitychange', handleVisibilityChange);
+            }
+          };
+
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+          window.location.href = appUrl;
+          fallbackTimer = window.setTimeout(() => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+            if (document.visibilityState === 'visible') {
+              window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+            }
+          }, 1400);
+        }
+
+        return;
+      }
+
+      try {
+        await Linking.openURL(appUrl);
+      } catch (error) {
+        await Linking.openURL(getStoreUrlForPlatform(appStoreName));
+      }
     }, []);
 
     const writeToClipboard = useCallback(async (value) => {
@@ -1043,6 +1155,72 @@ export default function HomeScreen({ navigation, route }) {
       setShareVideoId(videoId);
       setShowShareModal(true);
     }, []);
+
+    const handleShareToX = useCallback(async () => {
+      if (!shareVideoId) {
+        Alert.alert('Error', 'No se ha seleccionado ningun video.');
+        return;
+      }
+
+      const shareUrl = buildShareUrl(shareVideoId);
+      const shareText = SHARE_MESSAGE;
+      const webIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+      const appIntentUrl = `twitter://post?message=${encodeURIComponent(`${shareText} ${shareUrl}`)}`;
+
+      try {
+        await openShareDestination({
+          appUrl: appIntentUrl,
+          webUrl: webIntentUrl,
+          appStoreName: 'x',
+        });
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo abrir X para compartir este video.');
+      }
+    }, [buildShareUrl, openShareDestination, shareVideoId]);
+
+    const handleShareToWhatsApp = useCallback(async () => {
+      if (!shareVideoId) {
+        Alert.alert('Error', 'No se ha seleccionado ningun video.');
+        return;
+      }
+
+      const shareUrl = buildShareUrl(shareVideoId);
+      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
+      const webIntentUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(shareMessage)}`;
+      const appIntentUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
+
+      try {
+        await openShareDestination({
+          appUrl: appIntentUrl,
+          webUrl: webIntentUrl,
+          appStoreName: 'whatsapp',
+        });
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo abrir WhatsApp para compartir este video.');
+      }
+    }, [buildShareUrl, openShareDestination, shareVideoId]);
+
+    const handleShareToInstagram = useCallback(async () => {
+      if (!shareVideoId) {
+        Alert.alert('Error', 'No se ha seleccionado ningun video.');
+        return;
+      }
+
+      const shareUrl = buildShareUrl(shareVideoId);
+      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
+      const webIntentUrl = `https://www.instagram.com/?url=${encodeURIComponent(shareUrl)}`;
+      const appIntentUrl = `instagram://share?text=${encodeURIComponent(shareMessage)}`;
+
+      try {
+        await openShareDestination({
+          appUrl: appIntentUrl,
+          webUrl: webIntentUrl,
+          appStoreName: 'instagram',
+        });
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo abrir Instagram para compartir este video.');
+      }
+    }, [buildShareUrl, openShareDestination, shareVideoId]);
 
     const closeShareModal = useCallback(() => {
       setShowShareModal(false);
@@ -1519,14 +1697,23 @@ export default function HomeScreen({ navigation, route }) {
             <Text style={{ color: colors.textMuted, fontSize: typography.sizes.md * textScale, marginBottom: 12, textAlign: 'center' }}>Compartir en Redes Sociales</Text>
 
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 40, marginBottom: 18 }}>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#1d9bf0' }]} onPress={() => {}}>
+              <Pressable style={[styles.circleIconButton, { backgroundColor: '#1d9bf0' }]} onPress={handleShareToX}>
                 <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(61593)}</Text>
               </Pressable>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#25d366' }]} onPress={() => {}}>
+              <Pressable style={[styles.circleIconButton, { backgroundColor: '#25d366' }]} onPress={handleShareToWhatsApp}>
                 <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(62002)}</Text>
               </Pressable>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#d7005d' }]} onPress={() => {}}>
-                <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(61805)}</Text>
+              <Pressable
+                style={[
+                  styles.circleIconButton,
+                  { backgroundColor: instagramDisabled ? '#8a8a8a' : '#d7005d', opacity: instagramDisabled ? 0.8 : 1 },
+                ]}
+                onPress={handleShareToInstagram}
+                disabled={instagramDisabled}
+              >
+                <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff', opacity: instagramDisabled ? 0.85 : 1 }}>
+                  {String.fromCharCode(61805)}
+                </Text>
               </Pressable>
             </View>
 

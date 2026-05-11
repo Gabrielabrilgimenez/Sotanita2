@@ -1804,6 +1804,74 @@ async function handleLogin(req, res) {
 
 app.post('/api/login', handleLogin);
 
+// --- Video Preview (Open Graph) ---
+app.get('/video-preview', async (req, res) => {
+    try {
+        const videoId = req.query.videoId;
+        if (!videoId) {
+            return res.status(400).json({ message: 'videoId es obligatorio' });
+        }
+
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        if (!video) {
+            return res.status(404).send('Video no encontrado');
+        }
+
+        // Construir URL base del frontend (desde origin, referer o env var)
+        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
+        
+        const origin = req.get('origin');
+        const referer = req.get('referer');
+        
+        if (origin) {
+            originUrl = origin;
+        } else if (referer) {
+            try {
+                const refererUrl = new URL(referer);
+                originUrl = `${refererUrl.protocol}//${refererUrl.host}`;
+            } catch (e) {
+                // Si hay error parsing, usa el default
+            }
+        }
+
+        const imageUrl = `${originUrl}/assets/links.png`;
+        const videoUrl = `${originUrl}/feed?videoId=${encodeURIComponent(videoId)}`;
+        const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta property="og:title" content="${videoTitle}">
+  <meta property="og:description" content="Mira este video en la Sotanitapp">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:type" content="video.other">
+  <meta property="og:url" content="${videoUrl}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${videoTitle}">
+  <meta name="twitter:description" content="Mira este video en la Sotanitapp">
+  <meta name="twitter:image" content="${imageUrl}">
+  <meta http-equiv="refresh" content="0;url=${videoUrl}">
+  <title>${videoTitle}</title>
+</head>
+<body>
+  <p>Redirigiendo a video...</p>
+  <script>
+    window.location.href = "${videoUrl}";
+  </script>
+</body>
+</html>`;
+
+        return res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+    } catch (err) {
+        console.error('❌ Error en GET /video-preview', err.message);
+        return res.status(500).send('Error obteniendo preview del video');
+    }
+});
+
 async function startServer() {
     try {
         await client.connect();
