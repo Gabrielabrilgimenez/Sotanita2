@@ -18,7 +18,7 @@ export default function StrokeText({
   }
   
   return (
-    <View style={{ position: 'relative' }}>
+    <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
       {/* Capas de stroke */}
       {offsets.map((offset, idx) => (
         <Text
@@ -29,7 +29,10 @@ export default function StrokeText({
               position: 'absolute',
               top: 0,
               left: 0,
+              right: 0,
+              width: '100%',
               color: strokeColor,
+              textAlign: 'center',
             },
             {
               transform: [{ translateX: offset.x }, { translateY: offset.y }],
@@ -47,6 +50,7 @@ export default function StrokeText({
           {
             position: 'relative',
             zIndex: 10,
+            textAlign: 'center',
           },
         ]}
         {...props}

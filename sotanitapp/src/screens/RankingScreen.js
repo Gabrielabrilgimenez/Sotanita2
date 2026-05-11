@@ -119,7 +119,7 @@ export default function RankingScreen({ navigation }) {
           frameId={item.frameId}
           size={size}
           disableShadow
-          onPress={() => navigation.navigate('MyVideos', { videoId: item.videoId, sourceTab: 'ranking' })}
+          onPress={() => navigation.navigate('Home', { videoId: item.videoId })}
         />
         <Text style={{ color: accentColor, fontSize: typography.sizes[ size === 'large' ? 'xxl' : 'xl' ] * textScale, fontWeight: typography.weights.bold, marginTop: spacing.sm }}>
           {rank}°

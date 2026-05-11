@@ -57,6 +57,7 @@ function RootNavigator() {
 export default function App() {
   const [fontsLoaded] = useFonts({
     Nougat: require('./assets/Nougat-ExtraBlack.ttf'),
+    Fontello: require('./assets/fontello-5f7d3d1a/font/fontello.ttf'),
   });
 
   if (!fontsLoaded) {
