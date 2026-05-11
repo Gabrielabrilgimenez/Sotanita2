@@ -6,7 +6,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode, Audio } from 'expo-av';
+import { Audio, ResizeMode, Video } from '../utils/media';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
@@ -1062,12 +1062,8 @@ export default function HomeScreen({ navigation, route }) {
     const buildShareUrl = useCallback((videoId) => {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
-      if (Platform.OS === 'web') {
-        // Usar endpoint del backend como intermediario para meta tags en RRSS
-        return `${BACKEND_URL}/video-preview?videoId=${encodedVideoId}`;
-      }
-
-      return `sotanitapp://feed?videoId=${encodedVideoId}`;
+      // Usar siempre el endpoint intermediario /share que detecta dispositivo y app instalada
+      return `${BACKEND_URL}/share?videoId=${encodedVideoId}`;
     }, []);
 
     const openShareDestination = useCallback(async ({ appUrl, webUrl, appStoreName }) => {
@@ -1252,21 +1248,21 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      const video = videos.find((v) => String(v.id) === String(shareVideoId));
-      const url = video?.url;
-      if (!url) {
-        Alert.alert('Error', 'No se pudo obtener la URL del video.');
-        return;
-      }
+      const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
+      const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
+      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
 
       try {
         if (Platform.OS === 'web') {
-          const res = await fetch(url);
+          const res = await fetch(downloadUrl);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
           const blob = await res.blob();
           const a = document.createElement('a');
           const objectUrl = URL.createObjectURL(blob);
           a.href = objectUrl;
-          a.download = `video_${shareVideoId}.mp4`;
+          a.download = `video_${shareVideoId}_watermarked.mp4`;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -1281,19 +1277,18 @@ export default function HomeScreen({ navigation, route }) {
           return;
         }
 
-        const fileExt = url.split('?')[0].split('.').pop() || 'mp4';
-        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}.${fileExt}`;
-        const downloadResumable = FileSystem.createDownloadResumable(url, localUri);
+        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}_watermarked.mp4`;
+        const downloadResumable = FileSystem.createDownloadResumable(downloadUrl, localUri);
 
         const { uri } = await downloadResumable.downloadAsync();
         const asset = await MediaLibrary.createAssetAsync(uri);
         await MediaLibrary.createAlbumAsync('Sotanita', asset, false).catch(() => {});
-        Alert.alert('Listo', 'Video guardado en la galeria.');
+        Alert.alert('Listo', 'Video guardado en la galeria con marca de agua.');
       } catch (error) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [shareVideoId, videos]);
+    }, [shareVideoId]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {

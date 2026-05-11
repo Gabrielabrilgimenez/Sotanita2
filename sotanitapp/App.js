@@ -18,7 +18,12 @@ const linking = {
     screens: {
       MainTabs: {
         screens: {
-          Home: 'feed',
+          Home: {
+            path: 'feed',
+            parse: {
+              videoId: (videoId) => videoId,
+            },
+          },
         },
       },
     },

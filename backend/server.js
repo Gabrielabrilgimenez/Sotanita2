@@ -6,7 +6,15 @@ const { z } = require('zod');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
 require('dotenv').config();
+
+if (ffmpegPath) {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 const app = express();
 app.use(cors());
@@ -21,6 +29,12 @@ cloudinary.config({
 });
 
 const upload = multer({ dest: 'uploads/' });
+const WATERMARK_PATH = path.join(__dirname, '..', 'sotanitapp', 'assets', 'watermark.png');
+
+function isLikelyImageUrl(url) {
+    const value = String(url || '').toLowerCase();
+    return value.endsWith('.jpg') || value.endsWith('.jpeg') || value.endsWith('.png') || value.endsWith('.webp') || value.endsWith('.gif') || value.endsWith('.bmp') || value.endsWith('.tiff');
+}
 
 const WEEKLY_RANK_AWARDS = {
     general: [10, 6, 2],
@@ -1804,6 +1818,178 @@ async function handleLogin(req, res) {
 
 app.post('/api/login', handleLogin);
 
+app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        const targetWidth = Math.max(1, Number.parseInt(req.query.targetWidth, 10) || 1080);
+        const targetHeight = Math.max(1, Number.parseInt(req.query.targetHeight, 10) || 1920);
+        const isImageMedia = String(video?.mediaType || '').toLowerCase() === 'image' || isLikelyImageUrl(video?.url);
+
+        if (!video || !video.url) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        if (!fs.existsSync(WATERMARK_PATH)) {
+            return res.status(500).json({ message: 'No se encontro la marca de agua' });
+        }
+
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sourceExtension = isImageMedia ? 'jpg' : 'mp4';
+        const outputExtension = isImageMedia ? 'jpg' : 'mp4';
+        const sourcePath = path.join(os.tmpdir(), `sotanita-source-${safeVideoId}-${Date.now()}.${sourceExtension}`);
+        const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
+        const dispositionName = `video_${safeVideoId}_watermarked.${outputExtension}`;
+
+        const response = await fetch(video.url);
+        if (!response.ok || !response.body) {
+            return res.status(502).json({ message: 'No se pudo descargar el video original' });
+        }
+
+        const sourceBuffer = Buffer.from(await response.arrayBuffer());
+        fs.writeFileSync(sourcePath, sourceBuffer);
+
+        ffmpeg(sourcePath)
+            .input(WATERMARK_PATH)
+            .complexFilter([
+                `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
+                `[1:v][base]scale2ref=w=main_w*0.35:h=ih/3[wm][base2]`,
+                `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
+            ])
+            .outputOptions([
+                '-map', '[outv]',
+                ...(isImageMedia
+                    ? ['-frames:v', '1', '-q:v', '2']
+                    : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-movflags', '+faststart']),
+            ])
+            .on('error', (error) => {
+                console.error('❌ Error generando video con marca de agua:', error.message);
+                if (fs.existsSync(outputPath)) {
+                    fs.unlink(outputPath, () => {});
+                }
+                if (fs.existsSync(sourcePath)) {
+                    fs.unlink(sourcePath, () => {});
+                }
+                if (!res.headersSent) {
+                    return res.status(500).json({ message: isImageMedia ? 'No se pudo generar la imagen con marca de agua' : 'No se pudo generar el video con marca de agua' });
+                }
+            })
+            .on('end', () => {
+                res.setHeader('Content-Disposition', `attachment; filename="${dispositionName}"`);
+                res.setHeader('Content-Type', isImageMedia ? 'image/jpeg' : 'video/mp4');
+                res.sendFile(outputPath, (sendErr) => {
+                    if (sendErr) {
+                        console.error('❌ Error enviando video con marca de agua:', sendErr.message);
+                    }
+                    fs.unlink(outputPath, () => {});
+                    fs.unlink(sourcePath, () => {});
+                });
+            })
+            .save(outputPath);
+    } catch (err) {
+        console.error('❌ Error en descarga con marca de agua:', err.message);
+        return res.status(500).json({ message: 'Error descargando el archivo con marca de agua' });
+    }
+});
+
+// --- Share Link (Intermediario inteligente) ---
+app.get('/share', async (req, res) => {
+    try {
+        const videoId = req.query.videoId;
+        if (!videoId) {
+            return res.status(400).json({ message: 'videoId es obligatorio' });
+        }
+
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        if (!video) {
+            return res.status(404).send('Video no encontrado');
+        }
+
+        // Construir URL base del frontend
+        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
+        
+        const origin = req.get('origin');
+        const referer = req.get('referer');
+        
+        if (origin) {
+            originUrl = origin;
+        } else if (referer) {
+            try {
+                const refererUrl = new URL(referer);
+                originUrl = `${refererUrl.protocol}//${refererUrl.host}`;
+            } catch (e) {
+                // Si hay error parsing, usa el default
+            }
+        }
+
+        const imageUrl = `${originUrl}/assets/links.png`;
+        const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const encodedVideoId = encodeURIComponent(videoId);
+
+        // HTML con detección inteligente de dispositivo y app instalada
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta property="og:title" content="${videoTitle}">
+  <meta property="og:description" content="Mira este video en la Sotanitapp">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:type" content="video.other">
+  <meta property="og:url" content="${originUrl}/share?videoId=${encodedVideoId}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${videoTitle}">
+  <meta name="twitter:description" content="Mira este video en la Sotanitapp">
+  <meta name="twitter:image" content="${imageUrl}">
+  <title>${videoTitle}</title>
+</head>
+<body style="margin: 0; padding: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="text-align: center; color: #fff;">
+    <p>Cargando video...</p>
+  </div>
+  <script>
+    (function() {
+      const videoId = '${encodedVideoId}';
+      const frontendUrl = '${process.env.FRONTEND_URL || 'http://localhost:3000'}';
+      const webDesktopUrl = frontendUrl + '/feed?videoId=' + videoId;
+      const previewUrl = '${originUrl}/video-preview?videoId=' + videoId;
+      const appDeepLink = 'sotanitapp://feed?videoId=' + videoId;
+
+      // Detectar si es dispositivo móvil/tablet
+      const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+      if (!isMobileOrTablet) {
+        // Desktop: Redirigir a la app web del frontend
+        window.location.href = webDesktopUrl;
+        return;
+      }
+
+      // Mobile/Tablet: Intentar abrir app
+      const startTime = Date.now();
+      const timeout = 1500; // Esperar 1.5s para que se abra la app
+
+      // Intentar abrir app con deep link
+      window.location.href = appDeepLink;
+
+      // Si después de 1.5s seguimos aquí, la app no está instalada
+      setTimeout(() => {
+        // Cambiar a preview con Open Graph (para compartir en redes)
+        window.location.href = previewUrl;
+      }, timeout);
+    })();
+  </script>
+</body>
+</html>`;
+
+        return res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+    } catch (err) {
+        console.error('❌ Error en GET /share', err.message);
+        return res.status(500).send('Error compartiendo video');
+    }
+});
+
 // --- Video Preview (Open Graph) ---
 app.get('/video-preview', async (req, res) => {
     try {
@@ -1835,7 +2021,8 @@ app.get('/video-preview', async (req, res) => {
         }
 
         const imageUrl = `${originUrl}/assets/links.png`;
-        const videoUrl = `${originUrl}/feed?videoId=${encodeURIComponent(videoId)}`;
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const videoUrl = `${frontendUrl}/feed?videoId=${encodeURIComponent(videoId)}`;
         const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         const html = `<!DOCTYPE html>

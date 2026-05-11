@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../api/backend';
 import LoadingOverlay from '../components/LoadingOverlay';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/media';
 import { Ionicons } from '@expo/vector-icons';
 
 const formatTime = (ms) => {
