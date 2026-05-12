@@ -145,12 +145,12 @@ const FeedVideoItem = ({
   isRecording,
   carouselIndex,
   onCarouselIndexChange,
-  doubleTapReaction = 'heart',
 }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
   const lastTapRef = useRef(0);
   const tapFeedbackAnim = useRef(new Animated.Value(0)).current;
+  const tapFeedbackSource = require('../../assets/like.gif');
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -160,7 +160,6 @@ const FeedVideoItem = ({
   const isVideo = mediaType === 'video';
   const uploaderCard = video?.uploaderCard || null;
   const uploaderName = uploaderCard?.username || (video.id_usuario ? video.id_usuario.split('@')[0] : 'usuario');
-  const tapFeedbackGlyph = doubleTapReaction === 'ball' ? '⚽' : '❤️';
 
   const playTapFeedback = useCallback(() => {
     tapFeedbackAnim.stopAnimation(() => {
@@ -168,13 +167,13 @@ const FeedVideoItem = ({
       Animated.sequence([
         Animated.timing(tapFeedbackAnim, {
           toValue: 1,
-          duration: 160,
+          duration: 140,
           useNativeDriver: true,
         }),
+        Animated.delay(700),
         Animated.timing(tapFeedbackAnim, {
           toValue: 0,
-          duration: 220,
-          delay: 120,
+          duration: 180,
           useNativeDriver: true,
         }),
       ]).start();
@@ -253,29 +252,13 @@ const FeedVideoItem = ({
         style={[
           styles.tapFeedbackOverlay,
           {
-            opacity: tapFeedbackAnim.interpolate({
-              inputRange: [0, 0.18, 1],
-              outputRange: [0, 1, 0],
-            }),
-            transform: [
-              {
-                scale: tapFeedbackAnim.interpolate({
-                  inputRange: [0, 0.18, 1],
-                  outputRange: [0.55, 1.18, 1.32],
-                }),
-              },
-              {
-                translateY: tapFeedbackAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [10, -18],
-                }),
-              },
-            ],
+            opacity: tapFeedbackAnim,
+            transform: [{ scale: 1 }],
           },
         ]}
       >
-        <View style={[styles.tapFeedbackBubble, { backgroundColor: `${colors.black}88` }]}>
-          <Text style={styles.tapFeedbackGlyph}>{tapFeedbackGlyph}</Text>
+        <View style={styles.tapFeedbackBubble}>
+          <Image source={tapFeedbackSource} style={styles.tapFeedbackGif} resizeMode="contain" />
         </View>
       </Animated.View>
       <LinearGradient
@@ -1454,7 +1437,6 @@ export default function HomeScreen({ navigation, route }) {
                liking={likingVideoId === item.id}
               carouselIndex={carouselIndexByVideo[item.id] || 0}
               onCarouselIndexChange={(nextIndex) => handleCarouselIndexChange(item.id, nextIndex)}
-              doubleTapReaction="ball"
             />
           )}
           keyExtractor={(item) => item.id.toString()}
@@ -1783,17 +1765,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tapFeedbackBubble: {
-    minWidth: 88,
-    minHeight: 88,
-    borderRadius: 44,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
   },
-  tapFeedbackGlyph: {
-    fontSize: 42,
-    textAlign: 'center',
+  tapFeedbackGif: {
+    width: 150,
+    height: 150,
   },
   infoWrapper: { position: 'absolute', left: 16, right: 80, zIndex: 10 },
   title: { marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 },
