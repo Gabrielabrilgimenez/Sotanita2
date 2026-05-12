@@ -5,8 +5,13 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../api/backend';
 import LoadingOverlay from '../components/LoadingOverlay';
-import { Audio } from '../utils/media';
+import { Audio, ResizeMode, Video } from '../utils/media';
 import { Ionicons } from '@expo/vector-icons';
+
+const isProbablyVideoUrl = (value) => {
+  const normalized = String(value || '').toLowerCase();
+  return normalized.includes('.mp4') || normalized.includes('.mov') || normalized.includes('.m4v');
+};
 
 const formatTime = (ms) => {
   if (!ms || ms < 0) return '0:00';
@@ -424,7 +429,18 @@ export default function ForoEquipo({ route, navigation }) {
               }} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start' }}>
                 <View style={{ width: 112 * (textScale || 1), height: 178 * (textScale || 1), borderRadius: 16, overflow: 'hidden', backgroundColor: colors.surfaceElevated }}>
                   {item.share?.thumbnailUrl ? (
-                    <Image source={{ uri: item.share.thumbnailUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    isProbablyVideoUrl(item.share.thumbnailUrl) ? (
+                      <Video
+                        source={{ uri: item.share.thumbnailUrl }}
+                        style={{ width: '100%', height: '100%' }}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay={false}
+                        isLooping={false}
+                        isMuted
+                      />
+                    ) : (
+                      <Image source={{ uri: item.share.thumbnailUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    )
                   ) : (
                     <Image source={require('../../assets/perfil/teamChange_light.png')} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   )}

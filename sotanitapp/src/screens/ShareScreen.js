@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import ScreenGradient from '../components/ScreenGradient';
@@ -19,35 +19,51 @@ export default function ShareScreen({ navigation }) {
   const isAuthenticated = isLoggedIn || guestMode;
   
   const videoId = route?.params?.videoId ? String(route.params.videoId) : '';
+  const hasVideoId = Boolean(videoId);
   const shareUrl = getShareUrl(videoId);
   const feedUrl = `${FRONTEND_URL}/feed/${encodeURIComponent(videoId)}`;
   const feedUrlNoVideo = `${FRONTEND_URL}/feed`;
   const appDeepLink = `sotanitapp://feed/${encodeURIComponent(videoId)}`;
+  const fallbackMessage = useMemo(() => {
+    if (hasVideoId) {
+      return 'Estamos enviándote al video correcto según tu dispositivo.';
+    }
+
+    return isAuthenticated
+      ? 'Este enlace de compartir está incompleto. Te llevaremos al feed para que elijas el video.'
+      : 'Este enlace de compartir está incompleto. Te llevaremos a la pantalla de bienvenida para iniciar sesión.';
+  }, [hasVideoId, isAuthenticated]);
 
   useEffect(() => {
     // Si NO tiene videoId, redirigir según autenticación
-    if (!videoId) {
+    if (!hasVideoId) {
       if (Platform.OS !== 'web') {
-        // En mobile: ir a MainTabs (Feed) si autenticado, sino a Auth
-        if (isAuthenticated) {
-          navigation.replace('MainTabs', {
-            screen: 'Home',
-            params: {},
-          });
-        } else {
-          navigation.replace('Auth');
-        }
-        return;
+        const timer = setTimeout(() => {
+          // En mobile: ir a MainTabs (Feed) si autenticado, sino a Auth
+          if (isAuthenticated) {
+            navigation.replace('MainTabs', {
+              screen: 'Home',
+              params: {},
+            });
+          } else {
+            navigation.replace('Auth');
+          }
+        }, 1300);
+
+        return () => clearTimeout(timer);
       }
 
       // En web
-      if (isAuthenticated) {
-        window.location.replace(feedUrlNoVideo);
-      } else {
-        // Ir a la página de bienvenida/login
-        window.location.replace(`${FRONTEND_URL}/`);
-      }
-      return;
+      const timer = window.setTimeout(() => {
+        if (isAuthenticated) {
+          window.location.replace(feedUrlNoVideo);
+        } else {
+          // Ir a la página de bienvenida/login
+          window.location.replace(`${FRONTEND_URL}/`);
+        }
+      }, 1300);
+
+      return () => window.clearTimeout(timer);
     }
 
     // Si tiene videoId, proceder con el flujo de compartir
@@ -93,7 +109,7 @@ export default function ShareScreen({ navigation }) {
         clearTimeout(fallbackTimer);
       }
     };
-  }, [appDeepLink, feedUrl, feedUrlNoVideo, isAuthenticated, navigation, videoId]);
+  }, [appDeepLink, feedUrl, feedUrlNoVideo, hasVideoId, isAuthenticated, navigation, videoId]);
 
   return (
     <ScreenGradient>
@@ -118,12 +134,10 @@ export default function ShareScreen({ navigation }) {
               lineHeight: 24,
             }}
           >
-            {videoId
-              ? 'Estamos enviándote al sitio correcto según tu dispositivo.'
-              : 'No se encontró un identificador de video válido.'}
+            {fallbackMessage}
           </Text>
 
-          {videoId ? (
+          {hasVideoId ? (
             <View style={styles.metaBox}>
               <Text style={{ color: colors.primary, fontSize: typography.sizes.sm * textScale }}>
                 Video ID
@@ -135,7 +149,7 @@ export default function ShareScreen({ navigation }) {
           ) : null}
 
           <Text style={[styles.footer, { color: colors.textMuted, fontSize: typography.sizes.xs * textScale }]}> 
-            Si no se abre la app, cargaremos la versión web.
+            {hasVideoId ? 'Si no se abre la app, cargaremos la versión web.' : 'Redirigiendo automáticamente...'}
           </Text>
         </View>
       </View>

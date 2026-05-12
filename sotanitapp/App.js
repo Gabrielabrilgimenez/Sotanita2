@@ -17,7 +17,7 @@ const linking = {
   config: {
     screens: {
       Share: {
-        path: 'share/:videoId',
+        path: 'share/:videoId?',
         parse: {
           videoId: (videoId) => videoId,
         },

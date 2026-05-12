@@ -80,6 +80,11 @@ function isLikelyImageUrl(url) {
     return value.endsWith('.jpg') || value.endsWith('.jpeg') || value.endsWith('.png') || value.endsWith('.webp') || value.endsWith('.gif') || value.endsWith('.bmp') || value.endsWith('.tiff');
 }
 
+function normalizeEvenDimension(value) {
+    const safeValue = Math.max(2, Number(value) || 2);
+    return safeValue % 2 === 0 ? safeValue : safeValue - 1;
+}
+
 const WEEKLY_RANK_AWARDS = {
     general: [10, 6, 2],
     category: [5, 3, 1],
@@ -650,6 +655,32 @@ app.get('/api/rankings/weekly', async (req, res) => {
     } catch (error) {
         console.error('Error GET /api/rankings/weekly', error.message);
         return res.status(500).json({ message: 'Error obteniendo ranking semanal' });
+    }
+});
+
+// --- Username availability check (DEBE estar ANTES de /api/usuarios/:id) ---
+app.get('/api/usuarios/usernameDisponible', async (req, res) => {
+    try {
+        const username = String(req.query.username || '').trim();
+        if (!username) return res.status(400).json({ message: 'username es obligatorio' });
+
+        if (username.length < 3 || username.length > 10) {
+            return res.json({ available: false, reason: 'length' });
+        }
+
+        if (!/^[a-zA-Z0-9.\-]+$/.test(username)) {
+            return res.json({ available: false, reason: 'invalid_chars' });
+        }
+
+        if (!/[a-zA-Z]/.test(username)) {
+            return res.json({ available: false, reason: 'needs_letter' });
+        }
+
+        const existing = await db.collection('perfiles').findOne({ username }, { collation: { locale: 'es', strength: 2 } });
+        return res.json({ available: !Boolean(existing) });
+    } catch (err) {
+        console.error('Error checking username availability', err.message);
+        return res.status(500).json({ message: 'Error interno' });
     }
 });
 
@@ -1517,6 +1548,10 @@ async function handleGetTeamIdByName(req, res) {
     }
 }
 
+// --- Get Team Routes (DEBEN estar ANTES de /api/equipos/:id) ---
+app.get('/api/equipos/id', handleGetTeamIdByName);
+app.get('/api/equipo/idPorNombre', handleGetTeamIdByName);
+
 app.get('/api/equipos/:id', async (req, res) => {
     const { id } = req.params;
 
@@ -1564,9 +1599,6 @@ app.get('/api/equipos/:id', async (req, res) => {
         return res.status(500).json({ message: 'Error obteniendo equipo' });
     }
 });
-
-app.get('/api/equipos/id', handleGetTeamIdByName);
-app.get('/api/equipo/idPorNombre', handleGetTeamIdByName);
 
 async function handleCreateUser(req, res) {
     const parsed = createUserSchema.safeParse(req.body);
@@ -1680,32 +1712,6 @@ async function handleCreateUser(req, res) {
 
 app.post('/api/usuarios', handleCreateUser);
 app.post('/api/crearNuevoUsuario', handleCreateUser);
-
-// Check username availability
-app.get('/api/usuarios/usernameDisponible', async (req, res) => {
-    try {
-        const username = String(req.query.username || '').trim();
-        if (!username) return res.status(400).json({ message: 'username es obligatorio' });
-
-        if (username.length < 3 || username.length > 10) {
-            return res.json({ available: false, reason: 'length' });
-        }
-
-        if (!/^[a-zA-Z0-9.\-]+$/.test(username)) {
-            return res.json({ available: false, reason: 'invalid_chars' });
-        }
-
-        if (!/[a-zA-Z]/.test(username)) {
-            return res.json({ available: false, reason: 'needs_letter' });
-        }
-
-        const existing = await db.collection('perfiles').findOne({ username }, { collation: { locale: 'es', strength: 2 } });
-        return res.json({ available: !Boolean(existing) });
-    } catch (err) {
-        console.error('Error checking username availability', err.message);
-        return res.status(500).json({ message: 'Error interno' });
-    }
-});
 
 async function handleUpdateUser(req, res) {
     const { id } = req.params;
@@ -1886,9 +1892,13 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     try {
         const { videoId } = req.params;
         const video = await db.collection('videos').findOne(buildIdFilter(videoId));
-        const targetWidth = Math.max(1, Number.parseInt(req.query.targetWidth, 10) || 1080);
-        const targetHeight = Math.max(1, Number.parseInt(req.query.targetHeight, 10) || 1920);
-        const isImageMedia = String(video?.mediaType || '').toLowerCase() === 'image' || isLikelyImageUrl(video?.url);
+        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const targetWidth = normalizeEvenDimension(Number.parseInt(req.query.targetWidth, 10) || 1080);
+        const targetHeight = normalizeEvenDimension(Number.parseInt(req.query.targetHeight, 10) || 1920);
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
 
         if (!video || !video.url) {
             return res.status(404).json({ message: 'Video no encontrado' });
@@ -1905,7 +1915,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
         const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
         const dispositionName = `video_${safeVideoId}_watermarked.${outputExtension}`;
 
-        const response = await fetch(video.url);
+        const response = await fetch(primaryMediaUrl);
         if (!response.ok || !response.body) {
             return res.status(502).json({ message: 'No se pudo descargar el video original' });
         }
@@ -1924,7 +1934,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
                 '-map', '[outv]',
                 ...(isImageMedia
                     ? ['-frames:v', '1', '-q:v', '2']
-                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
+                    : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-level', '3.0', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
             ])
             .on('error', (error) => {
                 console.error('❌ Error generando video con marca de agua:', error.message);
@@ -1965,7 +1975,11 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
-        const isImageMedia = String(video?.mediaType || '').toLowerCase() === 'image' || isLikelyImageUrl(video?.url);
+        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
         const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
         const outputExtension = isImageMedia ? 'jpg' : 'mp4';
         const fileName = `share_${safeVideoId}.${outputExtension}`;
@@ -1975,7 +1989,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
         if (fs.existsSync(destPath)) {
             const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
             const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}` });
+            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share/${encodeURIComponent(videoId)}` });
         }
 
         // Crear archivos temporales y generar marca de agua (reutiliza pipeline existente)
@@ -1983,7 +1997,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
         const sourcePath = path.join(os.tmpdir(), `sotanita-source-${safeVideoId}-${Date.now()}.${sourceExtension}`);
         const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
 
-        const response = await fetch(video.url);
+        const response = await fetch(primaryMediaUrl);
         if (!response.ok || !response.body) {
             return res.status(502).json({ message: 'No se pudo descargar el video original' });
         }
@@ -2006,7 +2020,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
                     '-map', '[outv]',
                     ...(isImageMedia
                         ? ['-frames:v', '1', '-q:v', '2']
-                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
+                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-level', '3.0', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
                 ])
                 .on('error', (error) => {
                     console.error('❌ Error generando archivo para temp-shares:', error.message);
@@ -2031,7 +2045,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
 
         const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
                 const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}` });
+                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share/${encodeURIComponent(videoId)}` });
     } catch (err) {
         console.error('❌ Error en POST /api/temp-shares/:videoId', err.message);
         return res.status(500).json({ message: 'Error preparando archivo para compartir' });
