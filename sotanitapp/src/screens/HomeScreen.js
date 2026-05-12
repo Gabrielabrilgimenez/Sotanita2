@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Audio, ResizeMode, Video } from '../utils/media';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById } from '../api/backend';
+import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById, postForumMessage } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 import FifaCard from '../components/FifaCard';
@@ -1406,10 +1406,46 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      // Placeholder: perform Fan Zone share flow here.
-      closeShareModal();
-      Alert.alert('Compartido', 'Video enviado a Fan Zone.');
-    }, [shareVideoId, closeShareModal]);
+      // Cerrar el modal inmediatamente (como hace "Copiar enlace")
+      try {
+        closeShareModal();
+      } catch (e) {
+        // ignore
+      }
+
+      // Ejecutar el post al foro en background y notificar cuando termine
+      (async () => {
+        try {
+          const teamId = user?.teamId || user?.team || null;
+          const videoObj = videos.find((v) => String(v.id) === String(shareVideoId));
+          const thumbnail = videoObj ? (Array.isArray(videoObj.mediaUrls) && videoObj.mediaUrls[0] ? videoObj.mediaUrls[0] : videoObj.url) : null;
+          const title = videoObj?.title || videoObj?.name || videoObj?.caption || '';
+
+          if (!teamId) {
+            Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+            return;
+          }
+
+          const payload = {
+            user: user?.email || user?.id || user?.username || '',
+            type: 'share',
+            text: title || '',
+            share: {
+              videoId: String(shareVideoId),
+              thumbnailUrl: thumbnail || null,
+              title: title || '',
+              mediaType: videoObj?.mediaType || (Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length > 1 ? 'carousel' : 'video'),
+            },
+          };
+
+          await postForumMessage(teamId, payload);
+          Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+        } catch (err) {
+          console.error('Error compartiendo en Fan Zone', err?.message || err);
+          Alert.alert('Error', err?.message || 'No se pudo compartir en Fan Zone.');
+        }
+      })();
+    }, [shareVideoId, closeShareModal, user?.teamId, videos]);
   useEffect(() => {
     const targetVideoId = route?.params?.videoId;
     if (!targetVideoId) {
