@@ -41,7 +41,7 @@ const IOS_WHATSAPP_URL = 'https://apps.apple.com/us/app/whatsapp-messenger/id310
 const ANDROID_INSTAGRAM_URL = 'https://play.google.com/store/apps/details?id=com.instagram.android';
 const IOS_INSTAGRAM_URL = 'https://apps.apple.com/us/app/instagram/id389801252';
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'http://localhost:8081';
+const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
 const getRNShare = () => {
   if (Platform.OS === 'web') {

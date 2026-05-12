@@ -1924,7 +1924,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
                 '-map', '[outv]',
                 ...(isImageMedia
                     ? ['-frames:v', '1', '-q:v', '2']
-                    : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-movflags', '+faststart']),
+                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
             ])
             .on('error', (error) => {
                 console.error('❌ Error generando video con marca de agua:', error.message);
@@ -2005,7 +2005,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
                     '-map', '[outv]',
                     ...(isImageMedia
                         ? ['-frames:v', '1', '-q:v', '2']
-                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-movflags', '+faststart']),
+                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
                 ])
                 .on('error', (error) => {
                     console.error('❌ Error generando archivo para temp-shares:', error.message);
@@ -2050,7 +2050,7 @@ app.get('/share', async (req, res) => {
         }
 
         // Construir URL base del frontend
-        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
+        let originUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
         
         const origin = req.get('origin');
         const referer = req.get('referer');
@@ -2096,7 +2096,7 @@ app.get('/share', async (req, res) => {
   <script>
     (function() {
       const videoId = '${encodedVideoId}';
-      const frontendUrl = '${process.env.FRONTEND_URL || 'http://localhost:3000'}';
+    const frontendUrl = '${process.env.FRONTEND_URL || 'https://sotanita.vercel.app'}';
       const webDesktopUrl = frontendUrl + '/feed?videoId=' + videoId;
       const previewUrl = '${originUrl}/video-preview?videoId=' + videoId;
       const appDeepLink = 'sotanitapp://feed?videoId=' + videoId;
@@ -2148,7 +2148,7 @@ app.get('/video-preview', async (req, res) => {
         }
 
         // Construir URL base del frontend (desde origin, referer o env var)
-        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
+        let originUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
         
         const origin = req.get('origin');
         const referer = req.get('referer');
@@ -2165,7 +2165,7 @@ app.get('/video-preview', async (req, res) => {
         }
 
         const imageUrl = `${originUrl}/assets/links.png`;
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
         const videoUrl = `${frontendUrl}/feed?videoId=${encodeURIComponent(videoId)}`;
         const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
