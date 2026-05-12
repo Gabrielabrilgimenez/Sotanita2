@@ -16,6 +16,12 @@ const linking = {
   prefixes: ['sotanitapp://', ...(webPrefix ? [webPrefix] : [])],
   config: {
     screens: {
+      Share: {
+        path: 'share',
+        parse: {
+          videoId: (videoId) => videoId,
+        },
+      },
       MainTabs: {
         screens: {
           Home: {

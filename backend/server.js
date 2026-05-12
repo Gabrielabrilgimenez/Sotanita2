@@ -1917,7 +1917,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
             .input(WATERMARK_PATH)
             .complexFilter([
                 `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
-                `[1:v][base]scale2ref=w=main_w*0.35:h=ih/3[wm][base2]`,
+                `[1:v][base]scale2ref=w=main_w*0.28:h=ih/6[wm][base2]`,
                 `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
             ])
             .outputOptions([
@@ -1974,7 +1974,8 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
         // Si ya existe, devolver la URL directamente
         if (fs.existsSync(destPath)) {
             const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
-            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${host}/share?videoId=${encodeURIComponent(videoId)}` });
+            const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}` });
         }
 
         // Crear archivos temporales y generar marca de agua (reutiliza pipeline existente)
@@ -1998,7 +1999,7 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
                 .input(WATERMARK_PATH)
                 .complexFilter([
                     `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
-                    `[1:v][base]scale2ref=w=main_w*0.35:h=ih/3[wm][base2]`,
+                    `[1:v][base]scale2ref=w=main_w*0.28:h=ih/6[wm][base2]`,
                     `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
                 ])
                 .outputOptions([
@@ -2029,7 +2030,8 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
         if (fs.existsSync(sourcePath)) fs.unlink(sourcePath, () => {});
 
         const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
-        return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${host}/share?videoId=${encodeURIComponent(videoId)}` });
+                const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}` });
     } catch (err) {
         console.error('❌ Error en POST /api/temp-shares/:videoId', err.message);
         return res.status(500).json({ message: 'Error preparando archivo para compartir' });
@@ -2048,86 +2050,8 @@ app.get('/share', async (req, res) => {
         if (!video) {
             return res.status(404).send('Video no encontrado');
         }
-
-        // Construir URL base del frontend
-        let originUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-        
-        const origin = req.get('origin');
-        const referer = req.get('referer');
-        
-        if (origin) {
-            originUrl = origin;
-        } else if (referer) {
-            try {
-                const refererUrl = new URL(referer);
-                originUrl = `${refererUrl.protocol}//${refererUrl.host}`;
-            } catch (e) {
-                // Si hay error parsing, usa el default
-            }
-        }
-
-        const imageUrl = `${originUrl}/assets/links.png`;
-        const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const encodedVideoId = encodeURIComponent(videoId);
-
-        // HTML con detección inteligente de dispositivo y app instalada
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta property="og:title" content="${videoTitle}">
-  <meta property="og:description" content="Mira este video en la Sotanitapp">
-  <meta property="og:image" content="${imageUrl}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:type" content="video.other">
-  <meta property="og:url" content="${originUrl}/share?videoId=${encodedVideoId}">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${videoTitle}">
-  <meta name="twitter:description" content="Mira este video en la Sotanitapp">
-  <meta name="twitter:image" content="${imageUrl}">
-  <title>${videoTitle}</title>
-</head>
-<body style="margin: 0; padding: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <div style="text-align: center; color: #fff;">
-    <p>Cargando video...</p>
-  </div>
-  <script>
-    (function() {
-      const videoId = '${encodedVideoId}';
-    const frontendUrl = '${process.env.FRONTEND_URL || 'https://sotanita.vercel.app'}';
-      const webDesktopUrl = frontendUrl + '/feed?videoId=' + videoId;
-      const previewUrl = '${originUrl}/video-preview?videoId=' + videoId;
-      const appDeepLink = 'sotanitapp://feed?videoId=' + videoId;
-
-      // Detectar si es dispositivo móvil/tablet
-      const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-      if (!isMobileOrTablet) {
-        // Desktop: Redirigir a la app web del frontend
-        window.location.href = webDesktopUrl;
-        return;
-      }
-
-      // Mobile/Tablet: Intentar abrir app
-      const startTime = Date.now();
-      const timeout = 1500; // Esperar 1.5s para que se abra la app
-
-      // Intentar abrir app con deep link
-      window.location.href = appDeepLink;
-
-      // Si después de 1.5s seguimos aquí, la app no está instalada
-      setTimeout(() => {
-        // Cambiar a preview con Open Graph (para compartir en redes)
-        window.location.href = previewUrl;
-      }, timeout);
-    })();
-  </script>
-</body>
-</html>`;
-
-        return res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+                const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+                return res.redirect(302, `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}`);
     } catch (err) {
         console.error('❌ Error en GET /share', err.message);
         return res.status(500).send('Error compartiendo video');

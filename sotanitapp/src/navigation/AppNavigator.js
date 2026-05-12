@@ -8,6 +8,7 @@ import TabNavigator from './TabNavigator';
 import SearchScreen from '../screens/SearchScreen';
 import MyVideosScreen from '../screens/MyVideosScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import ShareScreen from '../screens/ShareScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -26,6 +27,7 @@ export default function AppNavigator() {
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Share" component={ShareScreen} />
       {isAuthenticated ? (
         <>
           <Stack.Screen name="MainTabs" component={TabNavigator} />

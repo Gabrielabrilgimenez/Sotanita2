@@ -1058,20 +1058,29 @@ export default function HomeScreen({ navigation, route }) {
     const buildShareUrl = useCallback((videoId) => {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
-      // Usar siempre el endpoint intermediario /share que detecta dispositivo y app instalada
-      return `${BACKEND_URL}/share?videoId=${encodedVideoId}`;
+      // La interfaz pública de share vive en el frontend de Vercel.
+      return `${FRONTEND_URL}/share?videoId=${encodedVideoId}`;
     }, []);
 
     const prepareTempShare = useCallback(async (videoId) => {
       if (!videoId) throw new Error('videoId es obligatorio');
       const url = `${BACKEND_URL}/api/temp-shares/${encodeURIComponent(String(videoId))}`;
-      const res = await fetch(url, { method: 'POST' });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} ${text}`);
+      console.log('prepareTempShare URL:', url);
+      try {
+        const res = await fetch(url, { method: 'POST' });
+        console.log('prepareTempShare response status:', res.status);
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          console.error('prepareTempShare error:', res.status, text);
+          throw new Error(`HTTP ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        console.log('prepareTempShare data:', data);
+        return data;
+      } catch (err) {
+        console.error('prepareTempShare catch error:', err);
+        throw err;
       }
-      const data = await res.json();
-      return data;
     }, []);
 
     const downloadFileToLocal = useCallback(async (fileUrl, suggestedName) => {
@@ -1254,7 +1263,8 @@ export default function HomeScreen({ navigation, route }) {
           await Share.share({ message: `${shareText} ${shareUrl}` });
         }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+        console.error('handleShareToX error:', error);
+        Alert.alert('Error', `No se pudo preparar el archivo para compartir: ${error.message || error}`);
       } finally {
         setIsPreparingShare(false);
       }
@@ -1288,7 +1298,8 @@ export default function HomeScreen({ navigation, route }) {
           await Share.share({ message: `${shareMessage}` });
         }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+        console.error('handleShareToWhatsApp error:', error);
+        Alert.alert('Error', `No se pudo preparar el archivo para compartir: ${error.message || error}`);
       } finally {
         setIsPreparingShare(false);
       }
@@ -1322,7 +1333,8 @@ export default function HomeScreen({ navigation, route }) {
           await Share.share({ message: `${shareMessage}` });
         }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+        console.error('handleShareToInstagram error:', error);
+        Alert.alert('Error', `No se pudo preparar el archivo para compartir: ${error.message || error}`);
       } finally {
         setIsPreparingShare(false);
       }
@@ -1358,9 +1370,19 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
+      const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
+      const primaryMediaUrl = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
+        ? videoToDownload.mediaUrls[0]
+        : videoToDownload?.url;
+      const normalizedMediaType = String(videoToDownload?.mediaType || '').toLowerCase();
+      const isImageMedia = normalizedMediaType === 'image'
+        || (normalizedMediaType === 'carousel' && !isLikelyVideoUrl(primaryMediaUrl))
+        || (!normalizedMediaType && !isLikelyVideoUrl(primaryMediaUrl));
+      const outputExtension = isImageMedia ? 'jpg' : 'mp4';
       const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
       const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
+      const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
 
       try {
         if (Platform.OS === 'web') {
@@ -1372,7 +1394,7 @@ export default function HomeScreen({ navigation, route }) {
           const a = document.createElement('a');
           const objectUrl = URL.createObjectURL(blob);
           a.href = objectUrl;
-          a.download = `video_${shareVideoId}_watermarked.mp4`;
+          a.download = downloadFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -1387,7 +1409,7 @@ export default function HomeScreen({ navigation, route }) {
           return;
         }
 
-        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}_watermarked.mp4`;
+        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}_watermarked.${outputExtension}`;
         const downloadResumable = FileSystem.createDownloadResumable(downloadUrl, localUri);
 
         const { uri } = await downloadResumable.downloadAsync();
@@ -1437,7 +1459,6 @@ export default function HomeScreen({ navigation, route }) {
               mediaType: videoObj?.mediaType || (Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length > 1 ? 'carousel' : 'video'),
             },
           };
-
           await postForumMessage(teamId, payload);
           Alert.alert('Compartido', 'Video enviado a Fan Zone.');
         } catch (err) {
@@ -1445,7 +1466,7 @@ export default function HomeScreen({ navigation, route }) {
           Alert.alert('Error', err?.message || 'No se pudo compartir en Fan Zone.');
         }
       })();
-    }, [shareVideoId, closeShareModal, user?.teamId, videos]);
+    }, [shareVideoId, closeShareModal, user?.teamId, user?.email, user?.id, user?.username, videos]);
   useEffect(() => {
     const targetVideoId = route?.params?.videoId;
     if (!targetVideoId) {
