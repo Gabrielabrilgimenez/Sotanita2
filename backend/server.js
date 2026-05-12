@@ -823,13 +823,32 @@ app.get('/api/foros/:teamId', async (req, res) => {
 app.post('/api/foros/:teamId', async (req, res) => {
     try {
         const { teamId } = req.params;
-        const { user, type, text, audioUrl } = req.body || {};
+        const { user, type, text, audioUrl, share } = req.body || {};
 
         if (!teamId) return res.status(400).json({ message: 'teamId es obligatorio' });
         if (!user) return res.status(400).json({ message: 'user es obligatorio' });
-        if (!type || (type !== 'text' && type !== 'audio')) return res.status(400).json({ message: 'type invalido' });
+
+        const allowedTypes = ['text', 'audio', 'share'];
+        if (!type || !allowedTypes.includes(type)) return res.status(400).json({ message: 'type invalido' });
+
         if (type === 'text' && (!text || String(text).trim().length === 0)) return res.status(400).json({ message: 'text es obligatorio para type=text' });
         if (type === 'text' && String(text).length > 500) return res.status(400).json({ message: 'text supera 500 caracteres' });
+        if (type === 'audio' && (!audioUrl || String(audioUrl).trim().length === 0)) return res.status(400).json({ message: 'audioUrl es obligatorio para type=audio' });
+
+        // For share type, accept a 'share' object with videoId and optional thumbnailUrl/title/mediaType
+        let shareObj = null;
+        if (type === 'share') {
+            if (!share || (!share.videoId && !share.video_id)) {
+                return res.status(400).json({ message: 'share.videoId es obligatorio para type=share' });
+            }
+
+            shareObj = {
+                videoId: String(share.videoId || share.video_id),
+                thumbnailUrl: share.thumbnailUrl || share.thumbnail_url || null,
+                title: String(share.title || share.titulo || share.name || '').trim() || null,
+                mediaType: String(share.mediaType || share.media_type || '').trim().toLowerCase() || null,
+            };
+        }
 
         // Normalize user identifier: prefer email (lowercased) when present
         const rawUser = String(user || '').trim();
@@ -841,6 +860,7 @@ app.post('/api/foros/:teamId', async (req, res) => {
             type,
             audioUrl: type === 'audio' ? (audioUrl || null) : null,
             text: type === 'text' ? String(text).trim() : null,
+            share: shareObj,
             date: new Date(),
         };
 

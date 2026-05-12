@@ -55,6 +55,7 @@ export default function ForoEquipo({ route, navigation }) {
   const [audioDurationMs, setAudioDurationMs] = useState(0);
   const audioRef = useRef(null);
   const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const fetchTeam = useCallback(async () => {
     if (!teamId) return;
@@ -78,6 +79,37 @@ export default function ForoEquipo({ route, navigation }) {
     }
   }, [teamId]);
 
+  const scrollRef = useRef(null);
+  const scrollOnNextUpdateRef = useRef(false);
+  const initialLoadedRef = useRef(false);
+  const autoScrollOnEntryRef = useRef(true);
+  const entryScrollDoneRef = useRef(false);
+  const isFocusedRef = useRef(false);
+  const contentHeightRef = useRef(0);
+  const viewportHeightRef = useRef(0);
+
+  const scrollToBottom = useCallback((animated = true) => {
+    try {
+      scrollRef.current?.scrollToEnd({ animated });
+    } catch (e) {}
+    setShowScrollToBottom(false);
+  }, []);
+
+  const updateScrollButtonVisibility = useCallback((offsetY, viewportHeight, contentHeight) => {
+    const distanceToBottom = contentHeight - (offsetY + viewportHeight);
+    const threshold = 120;
+    const isNearBottom = distanceToBottom <= threshold;
+    const canScroll = contentHeight > viewportHeight + 24;
+    setShowScrollToBottom(canScroll && !isNearBottom);
+  }, []);
+
+  const handleScroll = useCallback((event) => {
+    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+    viewportHeightRef.current = layoutMeasurement.height;
+    contentHeightRef.current = contentSize.height;
+    updateScrollButtonVisibility(contentOffset.y, layoutMeasurement.height, contentSize.height);
+  }, [updateScrollButtonVisibility]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -94,19 +126,29 @@ export default function ForoEquipo({ route, navigation }) {
   }, [fetchTeam, fetchMessages]);
 
   useEffect(() => {
-    // Scroll to bottom when messages are first loaded
-    if (initialLoadedRef.current && scrollRef.current && messages.length > 0) {
-      try {
-        scrollRef.current.scrollToEnd({ animated: false });
-      } catch (e) {}
+    if (!isFocusedRef.current || messages.length === 0) return;
+
+    if (autoScrollOnEntryRef.current && !entryScrollDoneRef.current) {
+      requestAnimationFrame(() => {
+        scrollToBottom(false);
+        entryScrollDoneRef.current = true;
+        autoScrollOnEntryRef.current = false;
+      });
     }
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   useFocusEffect(
     useCallback(() => {
+      isFocusedRef.current = true;
+      autoScrollOnEntryRef.current = true;
+      entryScrollDoneRef.current = false;
       if (!isLoggedIn || !user || !teamId) {
         navigation.goBack();
       }
+      return () => {
+        isFocusedRef.current = false;
+        setShowScrollToBottom(false);
+      };
     }, [isLoggedIn, user, teamId])
   );
 
@@ -370,7 +412,32 @@ export default function ForoEquipo({ route, navigation }) {
             </Pressable>
           ) : null}
           <View style={{ flex: 1 }}>
-            {item.type === 'audio' ? (
+            {item.type === 'share' || item.share ? (
+              <Pressable onPress={() => {
+                const videoId = item.share?.videoId || item.share?.video_id || item.videoId || item.video_id;
+                if (!videoId) return;
+                try {
+                  navigation.navigate('MainTabs', { screen: 'Home', params: { videoId: String(videoId) } });
+                } catch (e) {
+                  console.error('Error navegando al post desde foro', e);
+                }
+              }} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start' }}>
+                <View style={{ width: 112 * (textScale || 1), height: 178 * (textScale || 1), borderRadius: 16, overflow: 'hidden', backgroundColor: colors.surfaceElevated }}>
+                  {item.share?.thumbnailUrl ? (
+                    <Image source={{ uri: item.share.thumbnailUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  ) : (
+                    <Image source={require('../../assets/perfil/teamChange_light.png')} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  )}
+                  <View style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.14)' }}>
+                    <Ionicons
+                      name={item.share?.mediaType === 'image' ? 'image' : item.share?.mediaType === 'carousel' ? 'images' : 'play'}
+                      size={34 * (textScale || 1)}
+                      color={colors.white}
+                    />
+                  </View>
+                </View>
+              </Pressable>
+            ) : item.type === 'audio' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Pressable onPress={() => handleToggleAudio(item)} style={{ marginRight: 12 }}>
                   <View style={{
@@ -405,10 +472,6 @@ export default function ForoEquipo({ route, navigation }) {
       </View>
     );
   };
-  const scrollRef = useRef(null);
-  const scrollOnNextUpdateRef = useRef(false);
-  const initialLoadedRef = useRef(false);
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}> 
@@ -459,11 +522,36 @@ export default function ForoEquipo({ route, navigation }) {
         )}
       </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 12, paddingBottom: 140 }}>
+      <ScrollView
+        ref={scrollRef}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        onContentSizeChange={(width, height) => {
+          contentHeightRef.current = height;
+          updateScrollButtonVisibility(0, viewportHeightRef.current, height);
+        }}
+        onLayout={(event) => {
+          viewportHeightRef.current = event.nativeEvent.layout.height;
+          updateScrollButtonVisibility(0, viewportHeightRef.current, contentHeightRef.current);
+        }}
+        contentContainerStyle={{ padding: 12, paddingBottom: 140 }}
+      >
         {messages.map((m) => (
           <View key={m.id || String(m._id)}>{renderItem({ item: m })}</View>
         ))}
       </ScrollView>
+
+      {showScrollToBottom ? (
+        <View style={styles.scrollToBottomWrap} pointerEvents="box-none">
+          <Pressable
+            onPress={() => scrollToBottom(true)}
+            style={[styles.scrollToBottomBtn, { backgroundColor: colors.primary }]}
+            hitSlop={10}
+          >
+            <Ionicons name="chevron-down" size={24} color={colors.white} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {pendingDeleteMessage ? (
         <View style={styles.deleteConfirmOverlay}>
@@ -526,6 +614,19 @@ const styles = StyleSheet.create({
   messageRight: { alignSelf: 'flex-end', marginVertical: 6, maxWidth: '75%', marginHorizontal: 12 },
   bubble: { padding: 10, borderRadius: 10 },
   audioBubble: { padding: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center' },
+  scrollToBottomWrap: { position: 'absolute', left: 0, right: 0, bottom: 84, alignItems: 'center' },
+  scrollToBottomBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
   deleteConfirmOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
   deleteConfirmCard: { width: '80%', borderRadius: 16, padding: 16, alignItems: 'center' },
   deleteConfirmActions: { flexDirection: 'row', gap: 12, marginTop: 12 },
