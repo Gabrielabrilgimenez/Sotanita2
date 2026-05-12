@@ -3,27 +3,54 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import ScreenGradient from '../components/ScreenGradient';
 import { useAppTheme } from '../hooks/useAppTheme';
+import { useAuth } from '../context/AuthContext';
 
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
 function getShareUrl(videoId) {
   const encodedVideoId = encodeURIComponent(String(videoId || ''));
-  return `${FRONTEND_URL}/share?videoId=${encodedVideoId}`;
+  return `${FRONTEND_URL}/share/${encodedVideoId}`;
 }
 
 export default function ShareScreen({ navigation }) {
   const route = useRoute();
   const { colors, spacing, typography, textScale } = useAppTheme();
+  const { isLoggedIn, guestMode } = useAuth();
+  const isAuthenticated = isLoggedIn || guestMode;
+  
   const videoId = route?.params?.videoId ? String(route.params.videoId) : '';
   const shareUrl = getShareUrl(videoId);
-  const feedUrl = `${FRONTEND_URL}/feed?videoId=${encodeURIComponent(videoId)}`;
-  const appDeepLink = `sotanitapp://feed?videoId=${encodeURIComponent(videoId)}`;
+  const feedUrl = `${FRONTEND_URL}/feed/${encodeURIComponent(videoId)}`;
+  const feedUrlNoVideo = `${FRONTEND_URL}/feed`;
+  const appDeepLink = `sotanitapp://feed/${encodeURIComponent(videoId)}`;
 
   useEffect(() => {
+    // Si NO tiene videoId, redirigir según autenticación
     if (!videoId) {
+      if (Platform.OS !== 'web') {
+        // En mobile: ir a MainTabs (Feed) si autenticado, sino a Auth
+        if (isAuthenticated) {
+          navigation.replace('MainTabs', {
+            screen: 'Home',
+            params: {},
+          });
+        } else {
+          navigation.replace('Auth');
+        }
+        return;
+      }
+
+      // En web
+      if (isAuthenticated) {
+        window.location.replace(feedUrlNoVideo);
+      } else {
+        // Ir a la página de bienvenida/login
+        window.location.replace(`${FRONTEND_URL}/`);
+      }
       return;
     }
 
+    // Si tiene videoId, proceder con el flujo de compartir
     if (Platform.OS !== 'web') {
       navigation.replace('MainTabs', {
         screen: 'Home',
@@ -66,7 +93,7 @@ export default function ShareScreen({ navigation }) {
         clearTimeout(fallbackTimer);
       }
     };
-  }, [appDeepLink, feedUrl, navigation, videoId]);
+  }, [appDeepLink, feedUrl, feedUrlNoVideo, isAuthenticated, navigation, videoId]);
 
   return (
     <ScreenGradient>

@@ -1059,7 +1059,8 @@ export default function HomeScreen({ navigation, route }) {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
       // La interfaz pública de share vive en el frontend de Vercel.
-      return `${FRONTEND_URL}/share?videoId=${encodedVideoId}`;
+      // Usar path param para que sea reconocida por deep linking
+      return `${FRONTEND_URL}/share/${encodedVideoId}`;
     }, []);
 
     const prepareTempShare = useCallback(async (videoId) => {

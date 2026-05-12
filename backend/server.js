@@ -2051,7 +2051,7 @@ app.get('/share', async (req, res) => {
             return res.status(404).send('Video no encontrado');
         }
                 const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-                return res.redirect(302, `${frontendUrl}/share?videoId=${encodeURIComponent(videoId)}`);
+                return res.redirect(302, `${frontendUrl}/share/${encodeURIComponent(videoId)}`);
     } catch (err) {
         console.error('❌ Error en GET /share', err.message);
         return res.status(500).send('Error compartiendo video');
