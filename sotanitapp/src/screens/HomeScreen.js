@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking, Share } from 'react-native';
 import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
@@ -42,6 +42,18 @@ const ANDROID_INSTAGRAM_URL = 'https://play.google.com/store/apps/details?id=com
 const IOS_INSTAGRAM_URL = 'https://apps.apple.com/us/app/instagram/id389801252';
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'http://localhost:8081';
+
+const getRNShare = () => {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
+  try {
+    return require('react-native-share');
+  } catch (error) {
+    return null;
+  }
+};
 
 const getStoreUrlForPlatform = (appName) => {
   const normalizedAppName = String(appName || '').toLowerCase();
@@ -345,6 +357,7 @@ export default function HomeScreen({ navigation, route }) {
   const [showComments, setShowComments] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareVideoId, setShareVideoId] = useState(null);
+  const [isPreparingShare, setIsPreparingShare] = useState(false);
   const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
 
   useEffect(() => {
@@ -1049,6 +1062,84 @@ export default function HomeScreen({ navigation, route }) {
       return `${BACKEND_URL}/share?videoId=${encodedVideoId}`;
     }, []);
 
+    const prepareTempShare = useCallback(async (videoId) => {
+      if (!videoId) throw new Error('videoId es obligatorio');
+      const url = `${BACKEND_URL}/api/temp-shares/${encodeURIComponent(String(videoId))}`;
+      const res = await fetch(url, { method: 'POST' });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${text}`);
+      }
+      const data = await res.json();
+      return data;
+    }, []);
+
+    const downloadFileToLocal = useCallback(async (fileUrl, suggestedName) => {
+      try {
+        const ext = (fileUrl || '').split('.').pop().split('?')[0] || 'mp4';
+        const name = suggestedName || `sotanita_share_${Date.now()}.${ext}`;
+        const localPath = `${FileSystem.cacheDirectory}${name}`;
+        const { uri } = await FileSystem.downloadAsync(fileUrl, localPath);
+        return uri;
+      } catch (err) {
+        console.error('downloadFileToLocal error', err);
+        throw err;
+      }
+    }, []);
+
+    const shareFileNative = useCallback(async ({ fileUrl, shareUrl, preferred }) => {
+      if (!fileUrl) throw new Error('fileUrl es requerido');
+      const RNShare = getRNShare();
+      if (!RNShare) {
+        throw new Error('Sharing nativo no disponible en esta plataforma');
+      }
+
+      try {
+        const localUri = await downloadFileToLocal(fileUrl);
+        const nativeUrl = Platform.OS === 'android' ? `file://${localUri}` : localUri;
+
+        // Instagram Stories special flow
+        if (preferred === 'instagram_stories') {
+          try {
+            await RNShare.shareSingle({
+              social: RNShare.Social.INSTAGRAM_STORIES,
+              backgroundImage: nativeUrl,
+              attributionURL: shareUrl,
+            });
+            return true;
+          } catch (err) {
+            console.warn('instagram_stories shareSingle failed', err.message || err);
+            // fallthrough to generic open
+          }
+        }
+
+        // WhatsApp single
+        if (preferred === 'whatsapp') {
+          try {
+            await RNShare.shareSingle({
+              social: RNShare.Social.WHATSAPP,
+              url: nativeUrl,
+              message: SHARE_MESSAGE,
+            });
+            return true;
+          } catch (err) {
+            console.warn('whatsapp shareSingle failed', err.message || err);
+          }
+        }
+
+        // Generic share via react-native-share
+        try {
+          await RNShare.open({ url: nativeUrl, message: `${SHARE_MESSAGE} ${shareUrl}` });
+          return true;
+        } catch (err) {
+          console.warn('RNShare.open failed', err.message || err);
+          throw err;
+        }
+      } catch (err) {
+        throw err;
+      }
+    }, [downloadFileToLocal]);
+
     const openShareDestination = useCallback(async ({ appUrl, webUrl, appStoreName }) => {
       if (Platform.OS === 'web') {
         if (isDesktopLikeWeb()) {
@@ -1141,21 +1232,33 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareText = SHARE_MESSAGE;
-      const webIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-      const appIntentUrl = `twitter://post?message=${encodeURIComponent(`${shareText} ${shareUrl}`)}`;
-
+      setIsPreparingShare(true);
       try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'x',
-        });
+        const resp = await prepareTempShare(shareVideoId);
+        const { fileUrl, shareUrl } = resp;
+
+        try {
+          await shareFileNative({ fileUrl, shareUrl, preferred: null });
+          return;
+        } catch (err) {
+          console.warn('shareFileNative failed for X:', err.message || err);
+        }
+
+        const shareText = SHARE_MESSAGE;
+        const webIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+        const appIntentUrl = `twitter://post?message=${encodeURIComponent(`${shareText} ${shareUrl}`)}`;
+
+        try {
+          await openShareDestination({ appUrl: appIntentUrl, webUrl: webIntentUrl, appStoreName: 'x' });
+        } catch (err) {
+          await Share.share({ message: `${shareText} ${shareUrl}` });
+        }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir X para compartir este video.');
+        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+      } finally {
+        setIsPreparingShare(false);
       }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
+    }, [buildShareUrl, openShareDestination, shareVideoId, shareFileNative]);
 
     const handleShareToWhatsApp = useCallback(async () => {
       if (!shareVideoId) {
@@ -1163,21 +1266,33 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
-      const webIntentUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(shareMessage)}`;
-      const appIntentUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
-
+      setIsPreparingShare(true);
       try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'whatsapp',
-        });
+        const resp = await prepareTempShare(shareVideoId);
+        const { fileUrl, shareUrl } = resp;
+
+        try {
+          await shareFileNative({ fileUrl, shareUrl, preferred: 'whatsapp' });
+          return;
+        } catch (err) {
+          console.warn('shareFileNative failed for WhatsApp:', err.message || err);
+        }
+
+        const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
+        const webIntentUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(shareMessage)}`;
+        const appIntentUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
+
+        try {
+          await openShareDestination({ appUrl: appIntentUrl, webUrl: webIntentUrl, appStoreName: 'whatsapp' });
+        } catch (err) {
+          await Share.share({ message: `${shareMessage}` });
+        }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir WhatsApp para compartir este video.');
+        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+      } finally {
+        setIsPreparingShare(false);
       }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
+    }, [buildShareUrl, openShareDestination, shareVideoId, shareFileNative]);
 
     const handleShareToInstagram = useCallback(async () => {
       if (!shareVideoId) {
@@ -1185,21 +1300,33 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
-      const webIntentUrl = `https://www.instagram.com/?url=${encodeURIComponent(shareUrl)}`;
-      const appIntentUrl = `instagram://share?text=${encodeURIComponent(shareMessage)}`;
-
+      setIsPreparingShare(true);
       try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'instagram',
-        });
+        const resp = await prepareTempShare(shareVideoId);
+        const { fileUrl, shareUrl } = resp;
+
+        try {
+          await shareFileNative({ fileUrl, shareUrl, preferred: 'instagram_stories' });
+          return;
+        } catch (err) {
+          console.warn('shareFileNative failed for Instagram Stories:', err.message || err);
+        }
+
+        const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
+        const webIntentUrl = `https://www.instagram.com/?url=${encodeURIComponent(shareUrl)}`;
+        const appIntentUrl = `instagram://share?text=${encodeURIComponent(shareMessage)}`;
+
+        try {
+          await openShareDestination({ appUrl: appIntentUrl, webUrl: webIntentUrl, appStoreName: 'instagram' });
+        } catch (err) {
+          await Share.share({ message: `${shareMessage}` });
+        }
       } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir Instagram para compartir este video.');
+        Alert.alert('Error', 'No se pudo preparar el archivo para compartir.');
+      } finally {
+        setIsPreparingShare(false);
       }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
+    }, [buildShareUrl, openShareDestination, shareVideoId, shareFileNative]);
 
     const closeShareModal = useCallback(() => {
       setShowShareModal(false);
@@ -1674,19 +1801,19 @@ export default function HomeScreen({ navigation, route }) {
             <Text style={{ color: colors.textMuted, fontSize: typography.sizes.md * textScale, marginBottom: 12, textAlign: 'center' }}>Compartir en Redes Sociales</Text>
 
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 40, marginBottom: 18 }}>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#1d9bf0' }]} onPress={handleShareToX}>
+              <Pressable disabled={isPreparingShare} style={[styles.circleIconButton, { backgroundColor: '#1d9bf0', opacity: isPreparingShare ? 0.5 : 1 }]} onPress={handleShareToX}>
                 <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(61593)}</Text>
               </Pressable>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#25d366' }]} onPress={handleShareToWhatsApp}>
+              <Pressable disabled={isPreparingShare} style={[styles.circleIconButton, { backgroundColor: '#25d366', opacity: isPreparingShare ? 0.5 : 1 }]} onPress={handleShareToWhatsApp}>
                 <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(62002)}</Text>
               </Pressable>
               <Pressable
                 style={[
                   styles.circleIconButton,
-                  { backgroundColor: instagramDisabled ? '#8a8a8a' : '#d7005d', opacity: instagramDisabled ? 0.8 : 1 },
+                  { backgroundColor: instagramDisabled ? '#8a8a8a' : '#d7005d', opacity: instagramDisabled || isPreparingShare ? 0.6 : 1 },
                 ]}
                 onPress={handleShareToInstagram}
-                disabled={instagramDisabled}
+                disabled={instagramDisabled || isPreparingShare}
               >
                 <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff', opacity: instagramDisabled ? 0.85 : 1 }}>
                   {String.fromCharCode(61805)}

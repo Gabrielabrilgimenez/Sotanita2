@@ -21,6 +21,50 @@ app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
+// Directorio para archivos temporales que se compartirán desde móviles
+const TEMP_SHARES_DIR = path.join(__dirname, 'temp-shares');
+if (!fs.existsSync(TEMP_SHARES_DIR)) {
+    try {
+        fs.mkdirSync(TEMP_SHARES_DIR, { recursive: true });
+    } catch (e) {
+        console.error('No se pudo crear temp-shares dir:', e.message);
+    }
+}
+app.use('/temp-shares', express.static(TEMP_SHARES_DIR));
+
+// Configurable TTL (segundos) para archivos en temp-shares
+const TEMP_SHARES_TTL_SECONDS = Number(process.env.TEMP_SHARES_TTL_SECONDS || 3600); // 1 hora por defecto
+const TEMP_SHARES_CLEANUP_INTERVAL_MS = Number(process.env.TEMP_SHARES_CLEANUP_INTERVAL_MS || 15 * 60 * 1000); // 15 min
+
+function cleanupTempShares() {
+    try {
+        const files = fs.readdirSync(TEMP_SHARES_DIR);
+        const now = Date.now();
+        files.forEach((file) => {
+            try {
+                const full = path.join(TEMP_SHARES_DIR, file);
+                const stat = fs.statSync(full);
+                const mtime = stat.mtimeMs || stat.ctimeMs || 0;
+                if ((now - mtime) > (TEMP_SHARES_TTL_SECONDS * 1000)) {
+                    fs.unlinkSync(full);
+                    console.log('🧹 Eliminado temp-share:', full);
+                }
+            } catch (e) {
+                // no bloquear
+            }
+        });
+    } catch (e) {
+        console.error('Error cleanupTempShares:', e.message);
+    }
+}
+
+// Ejecutar limpieza periódica
+setInterval(() => {
+    cleanupTempShares();
+}, TEMP_SHARES_CLEANUP_INTERVAL_MS);
+// Ejecutar al iniciar también
+cleanupTempShares();
+
 // --- Cloudinary Config ---
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -1889,6 +1933,86 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     } catch (err) {
         console.error('❌ Error en descarga con marca de agua:', err.message);
         return res.status(500).json({ message: 'Error descargando el archivo con marca de agua' });
+    }
+});
+
+// --- Preparar archivo en temp-shares para compartir desde móvil ---
+app.post('/api/temp-shares/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        if (!video || !video.url) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        const isImageMedia = String(video?.mediaType || '').toLowerCase() === 'image' || isLikelyImageUrl(video?.url);
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const outputExtension = isImageMedia ? 'jpg' : 'mp4';
+        const fileName = `share_${safeVideoId}.${outputExtension}`;
+        const destPath = path.join(TEMP_SHARES_DIR, fileName);
+
+        // Si ya existe, devolver la URL directamente
+        if (fs.existsSync(destPath)) {
+            const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${host}/share?videoId=${encodeURIComponent(videoId)}` });
+        }
+
+        // Crear archivos temporales y generar marca de agua (reutiliza pipeline existente)
+        const sourceExtension = isImageMedia ? 'jpg' : 'mp4';
+        const sourcePath = path.join(os.tmpdir(), `sotanita-source-${safeVideoId}-${Date.now()}.${sourceExtension}`);
+        const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
+
+        const response = await fetch(video.url);
+        if (!response.ok || !response.body) {
+            return res.status(502).json({ message: 'No se pudo descargar el video original' });
+        }
+
+        const sourceBuffer = Buffer.from(await response.arrayBuffer());
+        fs.writeFileSync(sourcePath, sourceBuffer);
+
+        const targetWidth = Math.max(1, Number.parseInt(req.query.targetWidth, 10) || 1080);
+        const targetHeight = Math.max(1, Number.parseInt(req.query.targetHeight, 10) || 1920);
+
+        await new Promise((resolve, reject) => {
+            ffmpeg(sourcePath)
+                .input(WATERMARK_PATH)
+                .complexFilter([
+                    `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
+                    `[1:v][base]scale2ref=w=main_w*0.35:h=ih/3[wm][base2]`,
+                    `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
+                ])
+                .outputOptions([
+                    '-map', '[outv]',
+                    ...(isImageMedia
+                        ? ['-frames:v', '1', '-q:v', '2']
+                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-movflags', '+faststart']),
+                ])
+                .on('error', (error) => {
+                    console.error('❌ Error generando archivo para temp-shares:', error.message);
+                    if (fs.existsSync(outputPath)) fs.unlink(outputPath, () => {});
+                    if (fs.existsSync(sourcePath)) fs.unlink(sourcePath, () => {});
+                    reject(error);
+                })
+                .on('end', () => resolve())
+                .save(outputPath);
+        });
+
+        // Mover a carpeta temp-shares
+        try {
+            fs.renameSync(outputPath, destPath);
+        } catch (e) {
+            // fallback copy
+            fs.copyFileSync(outputPath, destPath);
+            fs.unlinkSync(outputPath);
+        }
+
+        if (fs.existsSync(sourcePath)) fs.unlink(sourcePath, () => {});
+
+        const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+        return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${host}/share?videoId=${encodeURIComponent(videoId)}` });
+    } catch (err) {
+        console.error('❌ Error en POST /api/temp-shares/:videoId', err.message);
+        return res.status(500).json({ message: 'Error preparando archivo para compartir' });
     }
 });
 
