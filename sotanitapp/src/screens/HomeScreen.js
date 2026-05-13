@@ -1085,6 +1085,8 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
+      closeShareModal();
+
       const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
       const primaryMediaUrl = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
         ? videoToDownload.mediaUrls[0]
@@ -1101,19 +1103,12 @@ export default function HomeScreen({ navigation, route }) {
 
       try {
         if (Platform.OS === 'web') {
-          const res = await fetch(downloadUrl);
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const blob = await res.blob();
           const a = document.createElement('a');
-          const objectUrl = URL.createObjectURL(blob);
-          a.href = objectUrl;
+          a.href = downloadUrl;
           a.download = downloadFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(objectUrl);
           Alert.alert('Listo', 'Descarga iniciada.');
           return;
         }
@@ -1135,7 +1130,7 @@ export default function HomeScreen({ navigation, route }) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [shareVideoId]);
+    }, [shareVideoId, closeShareModal, videos, screenWidth, containerHeight]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {

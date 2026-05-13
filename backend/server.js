@@ -1900,7 +1900,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
             || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
             || isLikelyImageUrl(primaryMediaUrl);
 
-        if (!video || !video.url) {
+        if (!video || !primaryMediaUrl) {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
