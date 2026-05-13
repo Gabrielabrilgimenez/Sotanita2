@@ -307,17 +307,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 18,
   },
   menu: {
-    width: 220,
     borderRadius: 14,
-    padding: 8,
+    overflow: 'hidden',
     borderWidth: 1,
   },
   menuItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
 });

@@ -223,7 +223,14 @@ const FeedVideoItem = ({
           styles.tapFeedbackOverlay,
           {
             opacity: tapFeedbackAnim,
-            transform: [{ scale: 1 }],
+            transform: [
+              {
+                scale: tapFeedbackAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 2.5],
+                }),
+              },
+            ],
           },
         ]}
       >
