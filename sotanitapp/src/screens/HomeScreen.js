@@ -1100,12 +1100,14 @@ export default function HomeScreen({ navigation, route }) {
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
       const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
       const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
+      const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download`;
+      const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
 
       try {
         if (Platform.OS === 'web') {
           const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = downloadFileName;
+          a.href = webDownloadUrl;
+          a.download = webDownloadFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();

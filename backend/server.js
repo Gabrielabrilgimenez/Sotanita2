@@ -1919,6 +1919,40 @@ async function handleLogin(req, res) {
 
 app.post('/api/login', handleLogin);
 
+app.get('/api/videos/:videoId/download', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
+
+        if (!video || !primaryMediaUrl) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        let extension = isImageMedia ? 'jpg' : 'mp4';
+        try {
+            const urlPath = new URL(primaryMediaUrl).pathname;
+            const ext = path.extname(urlPath || '').toLowerCase();
+            if (ext) {
+                extension = ext.replace('.', '') || extension;
+            }
+        } catch (e) {
+            // ignore invalid URLs
+        }
+
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const fileName = `media_${safeVideoId}.${extension}`;
+        await streamRemoteFileToResponse(primaryMediaUrl, res, fileName);
+    } catch (err) {
+        console.error('❌ Error en descarga directa:', err.message);
+        return res.status(500).json({ message: 'Error descargando el archivo' });
+    }
+});
+
 app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     try {
         const { videoId } = req.params;
