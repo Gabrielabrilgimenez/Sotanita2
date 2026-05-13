@@ -8,6 +8,8 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 require('dotenv').config();
@@ -74,6 +76,35 @@ cloudinary.config({
 
 const upload = multer({ dest: 'uploads/' });
 const WATERMARK_PATH = path.join(__dirname, '..', 'sotanitapp', 'assets', 'watermark.png');
+
+async function downloadRemoteFileToPath(url, destinationPath) {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+        throw new Error('No se pudo descargar el archivo remoto');
+    }
+
+    const nodeStream = Readable.fromWeb ? Readable.fromWeb(response.body) : response.body;
+    await pipeline(nodeStream, fs.createWriteStream(destinationPath));
+    return response.headers.get('content-type') || null;
+}
+
+async function streamRemoteFileToResponse(url, res, fileNameHint) {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+        res.status(502).json({ message: 'No se pudo descargar el archivo original' });
+        return false;
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (fileNameHint) {
+        res.setHeader('Content-Disposition', `attachment; filename="${fileNameHint}"`);
+    }
+    res.setHeader('Content-Type', contentType);
+
+    const nodeStream = Readable.fromWeb ? Readable.fromWeb(response.body) : response.body;
+    await pipeline(nodeStream, res);
+    return true;
+}
 
 function isLikelyImageUrl(url) {
     const value = String(url || '').toLowerCase();
@@ -1892,6 +1923,40 @@ async function handleLogin(req, res) {
 
 app.post('/api/login', handleLogin);
 
+app.get('/api/videos/:videoId/download', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
+
+        if (!video || !primaryMediaUrl) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        let extension = isImageMedia ? 'jpg' : 'mp4';
+        try {
+            const urlPath = new URL(primaryMediaUrl).pathname;
+            const ext = path.extname(urlPath || '').toLowerCase();
+            if (ext) {
+                extension = ext.replace('.', '') || extension;
+            }
+        } catch (e) {
+            // ignore invalid URLs
+        }
+
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const fileName = `media_${safeVideoId}.${extension}`;
+        await streamRemoteFileToResponse(primaryMediaUrl, res, fileName);
+    } catch (err) {
+        console.error('❌ Error en descarga directa:', err.message);
+        return res.status(500).json({ message: 'Error descargando el archivo' });
+    }
+});
+
 app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     try {
         const { videoId } = req.params;
@@ -1917,10 +1982,6 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
-        if (!fs.existsSync(WATERMARK_PATH)) {
-            return res.status(500).json({ message: 'No se encontro la marca de agua' });
-        }
-
         const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
         const sourceExtension = isImageMedia ? 'jpg' : 'mp4';
         const outputExtension = isImageMedia ? 'jpg' : 'mp4';
@@ -1928,13 +1989,13 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
         const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
         const dispositionName = `video_${safeVideoId}_watermarked.${outputExtension}`;
 
-        const response = await fetch(primaryMediaUrl);
-        if (!response.ok || !response.body) {
-            return res.status(502).json({ message: 'No se pudo descargar el video original' });
+        if (!fs.existsSync(WATERMARK_PATH)) {
+            const directName = `video_${safeVideoId}.${outputExtension}`;
+            await streamRemoteFileToResponse(primaryMediaUrl, res, directName);
+            return;
         }
 
-        const sourceBuffer = Buffer.from(await response.arrayBuffer());
-        fs.writeFileSync(sourcePath, sourceBuffer);
+        await downloadRemoteFileToPath(primaryMediaUrl, sourcePath);
 
         ffmpeg(sourcePath)
             .input(WATERMARK_PATH)

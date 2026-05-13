@@ -1141,6 +1141,8 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
+      closeShareModal();
+
       const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
       const mediaUrls = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
         ? videoToDownload.mediaUrls
@@ -1159,24 +1161,19 @@ export default function HomeScreen({ navigation, route }) {
       const outputExtension = isImageMedia ? 'jpg' : 'mp4';
       const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
-      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
-      const downloadFileName = `video_${shareVideoId}_${selectedMediaIndex}_watermarked.${outputExtension}`;
+      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
+      const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
+      const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download`;
+      const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
 
       try {
         if (Platform.OS === 'web') {
-          const res = await fetch(downloadUrl);
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const blob = await res.blob();
           const a = document.createElement('a');
-          const objectUrl = URL.createObjectURL(blob);
-          a.href = objectUrl;
-          a.download = downloadFileName;
+          a.href = webDownloadUrl;
+          a.download = webDownloadFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(objectUrl);
           Alert.alert('Listo', 'Descarga iniciada.');
           return;
         }
@@ -1198,7 +1195,7 @@ export default function HomeScreen({ navigation, route }) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [containerHeight, screenWidth, shareCarouselIndex, shareVideoId, videos]);
+    }, [shareVideoId]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {
