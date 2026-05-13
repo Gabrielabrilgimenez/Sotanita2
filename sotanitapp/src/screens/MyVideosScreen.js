@@ -155,6 +155,11 @@ export default function MyVideosScreen({ navigation, route }) {
         ? 'video'
         : 'image');
   const isCarousel = ['carousel', 'carrusel'].includes(mediaType) || mediaUrls.length > 1;
+  const sharePopupTitle = isCarousel
+    ? 'COMPARTIR CARRUSEL'
+    : mediaType === 'image'
+      ? 'COMPARTIR FOTO'
+      : 'COMPARTIR VIDEO';
   const uploaderCard = activeVideo?.uploaderCard || null;
   const uploaderName = uploaderCard?.username || (activeVideo?.id_usuario ? String(activeVideo.id_usuario).split('@')[0] : 'usuario');
   const canCycleVideos = videos.length > 1;
@@ -584,7 +589,7 @@ export default function MyVideosScreen({ navigation, route }) {
           <Pressable style={[styles.shareSheet, { backgroundColor: colors.surface }]} onPress={() => {}}>
             <View style={styles.sheetHeader}>
               <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale }}>
-                Compartir
+                {sharePopupTitle}
               </Text>
               <Pressable onPress={() => setShowShare(false)}>
                 <Ionicons name="close" size={26} color={colors.text} />

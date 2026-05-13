@@ -20,6 +20,7 @@ const linking = {
         path: 'share/:videoId?',
         parse: {
           videoId: (videoId) => videoId,
+          carouselIndex: (carouselIndex) => carouselIndex,
         },
       },
       MainTabs: {
@@ -28,6 +29,7 @@ const linking = {
             path: 'feed/:videoId?',
             parse: {
               videoId: (videoId) => videoId,
+              carouselIndex: (carouselIndex) => carouselIndex,
             },
           },
         },

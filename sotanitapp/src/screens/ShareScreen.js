@@ -7,23 +7,36 @@ import { useAuth } from '../context/AuthContext';
 
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
-function getShareUrl(videoId) {
+function parseCarouselIndex(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function getShareUrl(videoId, carouselIndex = null) {
   const encodedVideoId = encodeURIComponent(String(videoId || ''));
-  return `${FRONTEND_URL}/share/${encodedVideoId}`;
+  const baseUrl = `${FRONTEND_URL}/share/${encodedVideoId}`;
+  if (Number.isInteger(carouselIndex) && carouselIndex >= 0) {
+    return `${baseUrl}?carouselIndex=${carouselIndex}`;
+  }
+  return baseUrl;
 }
 
 export default function ShareScreen({ navigation }) {
   const route = useRoute();
   const { colors, spacing, typography, textScale } = useAppTheme();
-  const { isLoggedIn, guestMode } = useAuth();
+  const { isLoggedIn, guestMode, enterAsGuest } = useAuth();
   const isAuthenticated = isLoggedIn || guestMode;
   
   const videoId = route?.params?.videoId ? String(route.params.videoId) : '';
+  const carouselIndex = parseCarouselIndex(route?.params?.carouselIndex ?? route?.params?.mediaIndex);
   const hasVideoId = Boolean(videoId);
-  const shareUrl = getShareUrl(videoId);
-  const feedUrl = `${FRONTEND_URL}/feed/${encodeURIComponent(videoId)}`;
+  const shareUrl = getShareUrl(videoId, carouselIndex);
+  const feedBaseUrl = `${FRONTEND_URL}/feed/${encodeURIComponent(videoId)}`;
+  const feedUrl = Number.isInteger(carouselIndex) ? `${feedBaseUrl}?carouselIndex=${carouselIndex}` : feedBaseUrl;
   const feedUrlNoVideo = `${FRONTEND_URL}/feed`;
-  const appDeepLink = `sotanitapp://feed/${encodeURIComponent(videoId)}`;
+  const appDeepLink = Number.isInteger(carouselIndex)
+    ? `sotanitapp://feed/${encodeURIComponent(videoId)}?carouselIndex=${carouselIndex}`
+    : `sotanitapp://feed/${encodeURIComponent(videoId)}`;
   const fallbackMessage = useMemo(() => {
     if (hasVideoId) {
       return 'Estamos enviándote al video correcto según tu dispositivo.';
@@ -35,6 +48,11 @@ export default function ShareScreen({ navigation }) {
   }, [hasVideoId, isAuthenticated]);
 
   useEffect(() => {
+    if (hasVideoId && !isAuthenticated) {
+      enterAsGuest();
+      return;
+    }
+
     // Si NO tiene videoId, redirigir según autenticación
     if (!hasVideoId) {
       if (Platform.OS !== 'web') {
@@ -70,7 +88,7 @@ export default function ShareScreen({ navigation }) {
     if (Platform.OS !== 'web') {
       navigation.replace('MainTabs', {
         screen: 'Home',
-        params: { videoId },
+        params: Number.isInteger(carouselIndex) ? { videoId, carouselIndex } : { videoId },
       });
       return;
     }
@@ -109,7 +127,7 @@ export default function ShareScreen({ navigation }) {
         clearTimeout(fallbackTimer);
       }
     };
-  }, [appDeepLink, feedUrl, feedUrlNoVideo, hasVideoId, isAuthenticated, navigation, videoId]);
+  }, [appDeepLink, carouselIndex, enterAsGuest, feedUrl, feedUrlNoVideo, hasVideoId, isAuthenticated, navigation, videoId]);
 
   return (
     <ScreenGradient>

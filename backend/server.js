@@ -922,6 +922,10 @@ app.post('/api/foros/:teamId', async (req, res) => {
                 thumbnailUrl: share.thumbnailUrl || share.thumbnail_url || null,
                 title: String(share.title || share.titulo || share.name || '').trim() || null,
                 mediaType: String(share.mediaType || share.media_type || '').trim().toLowerCase() || null,
+                carouselIndex: (() => {
+                    const parsedIndex = Number.parseInt(String(share.carouselIndex ?? share.carousel_index ?? share.mediaIndex ?? share.media_index ?? ''), 10);
+                    return Number.isFinite(parsedIndex) && parsedIndex >= 0 ? parsedIndex : null;
+                })(),
             };
         }
 
@@ -1892,7 +1896,16 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     try {
         const { videoId } = req.params;
         const video = await db.collection('videos').findOne(buildIdFilter(videoId));
-        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const requestedMediaIndex = Number.parseInt(String(req.query.mediaIndex ?? req.query.carouselIndex ?? ''), 10);
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const safeMediaIndex = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+            ? Math.min(requestedMediaIndex, Math.max(mediaUrls.length - 1, 0))
+            : 0;
+        const primaryMediaUrl = mediaUrls[safeMediaIndex] || video?.url;
         const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
         const targetWidth = normalizeEvenDimension(Number.parseInt(req.query.targetWidth, 10) || 1080);
         const targetHeight = normalizeEvenDimension(Number.parseInt(req.query.targetHeight, 10) || 1920);
@@ -1900,7 +1913,7 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
             || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
             || isLikelyImageUrl(primaryMediaUrl);
 
-        if (!video || !video.url) {
+        if (!video || !primaryMediaUrl) {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
@@ -1970,12 +1983,22 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
 app.post('/api/temp-shares/:videoId', async (req, res) => {
     try {
         const { videoId } = req.params;
+        const requestedMediaIndex = Number.parseInt(String(req.query.mediaIndex ?? req.query.carouselIndex ?? ''), 10);
         const video = await db.collection('videos').findOne(buildIdFilter(videoId));
-        if (!video || !video.url) {
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const safeMediaIndex = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+            ? Math.min(requestedMediaIndex, Math.max(mediaUrls.length - 1, 0))
+            : 0;
+        const primaryMediaUrl = mediaUrls[safeMediaIndex] || video?.url;
+
+        if (!video || !primaryMediaUrl) {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
-        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
         const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
         const isImageMedia = normalizedMediaType === 'image'
             || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
@@ -1989,7 +2012,10 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
         if (fs.existsSync(destPath)) {
             const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
             const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share/${encodeURIComponent(videoId)}` });
+            const shareUrl = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+                ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${safeMediaIndex}`
+                : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl });
         }
 
         // Crear archivos temporales y generar marca de agua (reutiliza pipeline existente)
@@ -2045,7 +2071,10 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
 
         const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
                 const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl: `${frontendUrl}/share/${encodeURIComponent(videoId)}` });
+                const shareUrl = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+                    ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${safeMediaIndex}`
+                    : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl });
     } catch (err) {
         console.error('❌ Error en POST /api/temp-shares/:videoId', err.message);
         return res.status(500).json({ message: 'Error preparando archivo para compartir' });
@@ -2056,6 +2085,9 @@ app.post('/api/temp-shares/:videoId', async (req, res) => {
 app.get('/share', async (req, res) => {
     try {
         const videoId = req.query.videoId;
+        const rawCarouselIndex = req.query.carouselIndex ?? req.query.mediaIndex;
+        const parsedCarouselIndex = Number.parseInt(String(rawCarouselIndex ?? ''), 10);
+        const hasCarouselIndex = Number.isFinite(parsedCarouselIndex) && parsedCarouselIndex >= 0;
         if (!videoId) {
             return res.status(400).json({ message: 'videoId es obligatorio' });
         }
@@ -2065,7 +2097,10 @@ app.get('/share', async (req, res) => {
             return res.status(404).send('Video no encontrado');
         }
                 const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
-                return res.redirect(302, `${frontendUrl}/share/${encodeURIComponent(videoId)}`);
+                const redirectUrl = hasCarouselIndex
+                    ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${parsedCarouselIndex}`
+                    : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+                return res.redirect(302, redirectUrl);
     } catch (err) {
         console.error('❌ Error en GET /share', err.message);
         return res.status(500).send('Error compartiendo video');

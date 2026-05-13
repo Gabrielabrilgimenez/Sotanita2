@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking, Share } from 'react-native';
 import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system';
@@ -33,6 +33,11 @@ const isLikelyVideoUrl = (url) => {
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
 };
 
+const parseCarouselIndex = (value) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
@@ -47,11 +52,18 @@ const isDesktopLikeWeb = () => {
 
 const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
   const [width, setWidth] = useState(0);
+  const scrollRef = useRef(null);
   const lastIndexRef = useRef(activeIndex || 0);
 
   useEffect(() => {
     lastIndexRef.current = activeIndex || 0;
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (!scrollRef.current || !width || !urls.length) return;
+    const safeIndex = Math.max(0, Math.min(activeIndex || 0, urls.length - 1));
+    scrollRef.current.scrollTo({ x: safeIndex * width, y: 0, animated: false });
+  }, [activeIndex, urls.length, width]);
 
   const updateIndexFromOffset = (offsetX) => {
     if (!width) return;
@@ -68,6 +80,7 @@ const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
     >
       <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -345,6 +358,7 @@ export default function HomeScreen({ navigation, route }) {
   const [carouselIndexByVideo, setCarouselIndexByVideo] = useState({});
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [pendingFeedVideoId, setPendingFeedVideoId] = useState(null);
+  const [pendingFeedCarouselIndex, setPendingFeedCarouselIndex] = useState(null);
   const [pendingDeleteComment, setPendingDeleteComment] = useState(null);
   const [loadingNewComment, setLoadingNewComment] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
@@ -423,6 +437,23 @@ export default function HomeScreen({ navigation, route }) {
       });
 
       setVideos(normalizedData);
+
+      if (pendingFeedVideoId && !selectedCategory && pendingFeedCarouselIndex != null) {
+        const pinnedVideo = normalizedData.find((video) => String(video.id) === String(pendingFeedVideoId));
+        if (pinnedVideo) {
+          const pinnedMediaUrls = Array.isArray(pinnedVideo.mediaUrls) && pinnedVideo.mediaUrls.length
+            ? pinnedVideo.mediaUrls
+            : pinnedVideo.url
+              ? [pinnedVideo.url]
+              : [];
+          const clampedIndex = Math.max(0, Math.min(pendingFeedCarouselIndex, Math.max(pinnedMediaUrls.length - 1, 0)));
+          setCarouselIndexByVideo((prev) => ({
+            ...prev,
+            [pendingFeedVideoId]: clampedIndex,
+          }));
+        }
+      }
+
       setActiveIndex(0);
       activeIndexRef.current = 0;
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -437,6 +468,7 @@ export default function HomeScreen({ navigation, route }) {
 
       if (pendingFeedVideoId && !selectedCategory) {
         setPendingFeedVideoId(null);
+        setPendingFeedCarouselIndex(null);
       }
     } catch (error) {
       console.error('Error fetching videos:', error);
@@ -446,7 +478,7 @@ export default function HomeScreen({ navigation, route }) {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [user?.email, selectedCategory, pendingFeedVideoId, pinnedFeedVideoId]);
+  }, [pendingFeedCarouselIndex, user?.email, selectedCategory, pendingFeedVideoId, pinnedFeedVideoId]);
 
   const fetchMoreFeedVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -989,6 +1021,26 @@ export default function HomeScreen({ navigation, route }) {
   const activeMediaType = activeVideo?.mediaType || (isLikelyVideoUrl(activeVideo?.url) ? 'video' : 'image');
   const showCarouselDots = activeMediaType === 'carousel' || activeMediaUrls.length > 1;
   const activeCarouselIndex = carouselIndexByVideo[activeVideo?.id] || 0;
+  const shareVideo = useMemo(
+    () => videos.find((item) => String(item.id) === String(shareVideoId)),
+    [videos, shareVideoId]
+  );
+  const shareMediaUrls = Array.isArray(shareVideo?.mediaUrls) && shareVideo.mediaUrls.length
+    ? shareVideo.mediaUrls
+    : shareVideo?.url
+      ? [shareVideo.url]
+      : [];
+  const normalizedShareMediaType = String(shareVideo?.mediaType || '').trim().toLowerCase();
+  const isShareCarousel = normalizedShareMediaType === 'carousel' || normalizedShareMediaType === 'carrusel' || shareMediaUrls.length > 1;
+  const isShareImage = normalizedShareMediaType === 'image' || (shareMediaUrls.length > 0 && !isLikelyVideoUrl(shareMediaUrls[0]));
+  const shareCarouselIndex = isShareCarousel
+    ? Math.max(0, Math.min(Number(carouselIndexByVideo[shareVideo?.id] || 0), Math.max(shareMediaUrls.length - 1, 0)))
+    : 0;
+  const shareModalTitle = isShareCarousel
+    ? 'COMPARTIR CARRUSEL'
+    : isShareImage
+      ? 'COMPARTIR FOTO'
+      : 'COMPARTIR VIDEO';
 
   const handleCarouselIndexChange = useCallback((videoId, index) => {
     setCarouselIndexByVideo((prev) => ({
@@ -997,12 +1049,16 @@ export default function HomeScreen({ navigation, route }) {
     }));
   }, []);
 
-    const buildShareUrl = useCallback((videoId) => {
+    const buildShareUrl = useCallback((videoId, carouselIndex = null) => {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
       // La interfaz pública de share vive en el frontend de Vercel.
       // Usar path param para que sea reconocida por deep linking
-      return `${FRONTEND_URL}/share/${encodedVideoId}`;
+      const baseUrl = `${FRONTEND_URL}/share/${encodedVideoId}`;
+      if (Number.isInteger(carouselIndex) && carouselIndex >= 0) {
+        return `${baseUrl}?carouselIndex=${carouselIndex}`;
+      }
+      return baseUrl;
     }, []);
 
 
@@ -1063,7 +1119,7 @@ export default function HomeScreen({ navigation, route }) {
     const handleCopyShareLink = useCallback(async () => {
       if (!shareVideoId) return;
 
-      const shareUrl = buildShareUrl(shareVideoId);
+      const shareUrl = buildShareUrl(shareVideoId, isShareCarousel ? shareCarouselIndex : null);
 
       try {
         const copied = await writeToClipboard(shareUrl);
@@ -1077,7 +1133,7 @@ export default function HomeScreen({ navigation, route }) {
       } catch (error) {
         Alert.alert('Error', 'No se pudo copiar el enlace.');
       }
-    }, [buildShareUrl, closeShareModal, shareVideoId, writeToClipboard]);
+    }, [buildShareUrl, closeShareModal, isShareCarousel, shareCarouselIndex, shareVideoId, writeToClipboard]);
 
     const handleDownloadVideo = useCallback(async () => {
       if (!shareVideoId) {
@@ -1086,18 +1142,25 @@ export default function HomeScreen({ navigation, route }) {
       }
 
       const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
-      const primaryMediaUrl = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
-        ? videoToDownload.mediaUrls[0]
-        : videoToDownload?.url;
+      const mediaUrls = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
+        ? videoToDownload.mediaUrls
+        : videoToDownload?.url
+          ? [videoToDownload.url]
+          : [];
       const normalizedMediaType = String(videoToDownload?.mediaType || '').toLowerCase();
+      const isCarouselMedia = normalizedMediaType === 'carousel' || normalizedMediaType === 'carrusel' || mediaUrls.length > 1;
+      const selectedMediaIndex = isCarouselMedia
+        ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaUrls.length - 1, 0)))
+        : 0;
+      const primaryMediaUrl = mediaUrls[selectedMediaIndex] || videoToDownload?.url;
       const isImageMedia = normalizedMediaType === 'image'
         || (normalizedMediaType === 'carousel' && !isLikelyVideoUrl(primaryMediaUrl))
         || (!normalizedMediaType && !isLikelyVideoUrl(primaryMediaUrl));
       const outputExtension = isImageMedia ? 'jpg' : 'mp4';
       const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
-      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
-      const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
+      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
+      const downloadFileName = `video_${shareVideoId}_${selectedMediaIndex}_watermarked.${outputExtension}`;
 
       try {
         if (Platform.OS === 'web') {
@@ -1135,7 +1198,7 @@ export default function HomeScreen({ navigation, route }) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [shareVideoId]);
+    }, [containerHeight, screenWidth, shareCarouselIndex, shareVideoId, videos]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {
@@ -1155,7 +1218,17 @@ export default function HomeScreen({ navigation, route }) {
         try {
           const teamId = user?.teamId || user?.team || null;
           const videoObj = videos.find((v) => String(v.id) === String(shareVideoId));
-          const thumbnail = videoObj ? (Array.isArray(videoObj.mediaUrls) && videoObj.mediaUrls[0] ? videoObj.mediaUrls[0] : videoObj.url) : null;
+          const mediaUrls = Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length
+            ? videoObj.mediaUrls
+            : videoObj?.url
+              ? [videoObj.url]
+              : [];
+          const normalizedVideoType = String(videoObj?.mediaType || '').trim().toLowerCase();
+          const isCarouselMedia = normalizedVideoType === 'carousel' || normalizedVideoType === 'carrusel' || mediaUrls.length > 1;
+          const selectedMediaIndex = isCarouselMedia
+            ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaUrls.length - 1, 0)))
+            : 0;
+          const thumbnail = mediaUrls[selectedMediaIndex] || videoObj?.url || null;
           const title = videoObj?.title || videoObj?.name || videoObj?.caption || '';
 
           if (!teamId) {
@@ -1172,6 +1245,7 @@ export default function HomeScreen({ navigation, route }) {
               thumbnailUrl: thumbnail || null,
               title: title || '',
               mediaType: videoObj?.mediaType || (Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length > 1 ? 'carousel' : 'video'),
+              carouselIndex: isCarouselMedia ? selectedMediaIndex : null,
             },
           };
           await postForumMessage(teamId, payload);
@@ -1181,26 +1255,29 @@ export default function HomeScreen({ navigation, route }) {
           Alert.alert('Error', err?.message || 'No se pudo compartir en Fan Zone.');
         }
       })();
-    }, [shareVideoId, closeShareModal, user?.teamId, user?.email, user?.id, user?.username, videos]);
+    }, [shareCarouselIndex, shareVideoId, closeShareModal, user?.teamId, user?.email, user?.id, user?.username, videos]);
   useEffect(() => {
     const targetVideoId = route?.params?.videoId;
+    const targetCarouselIndex = parseCarouselIndex(route?.params?.carouselIndex ?? route?.params?.mediaIndex);
     if (!targetVideoId) {
       return;
     }
 
     setPendingFeedVideoId(String(targetVideoId));
+    setPendingFeedCarouselIndex(targetCarouselIndex);
     setSelectedCategory('');
     setLoading(true);
-  }, [route?.params?.videoId]);
+  }, [route?.params?.carouselIndex, route?.params?.mediaIndex, route?.params?.videoId]);
 
   useFocusEffect(
     useCallback(() => {
       return () => {
         if (route?.params?.videoId) {
-          navigation.setParams({ videoId: undefined });
+          navigation.setParams({ videoId: undefined, carouselIndex: undefined, mediaIndex: undefined });
         }
 
         setPendingFeedVideoId(null);
+        setPendingFeedCarouselIndex(null);
       };
     }, [navigation, route?.params?.videoId])
   );
@@ -1534,11 +1611,11 @@ export default function HomeScreen({ navigation, route }) {
         <Pressable style={styles.shareOverlay} onPress={closeShareModal}>
           <Pressable style={[styles.shareCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: typography.sizes.xl * textScale * 1.5, textAlign: 'center', marginBottom: 8, fontFamily: typography.families.nougat }}>
-              COMPARTIR VIDEO
+              {shareModalTitle}
             </Text>
 
             <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, textAlign: 'center', marginBottom: 12 }}>
-              Suelta el video y ata el movil
+              Comparte este contenido en un toque
             </Text>
 
             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>

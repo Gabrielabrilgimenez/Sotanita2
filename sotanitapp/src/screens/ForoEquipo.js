@@ -420,9 +420,21 @@ export default function ForoEquipo({ route, navigation }) {
             {item.type === 'share' || item.share ? (
               <Pressable onPress={() => {
                 const videoId = item.share?.videoId || item.share?.video_id || item.videoId || item.video_id;
+                const parsedCarouselIndex = Number.parseInt(
+                  String(item.share?.carouselIndex ?? item.share?.carousel_index ?? item.share?.mediaIndex ?? item.share?.media_index ?? ''),
+                  10
+                );
+                const carouselIndex = Number.isFinite(parsedCarouselIndex) && parsedCarouselIndex >= 0
+                  ? parsedCarouselIndex
+                  : null;
                 if (!videoId) return;
                 try {
-                  navigation.navigate('MainTabs', { screen: 'Home', params: { videoId: String(videoId) } });
+                  navigation.navigate('MainTabs', {
+                    screen: 'Home',
+                    params: carouselIndex != null
+                      ? { videoId: String(videoId), carouselIndex }
+                      : { videoId: String(videoId) },
+                  });
                 } catch (e) {
                   console.error('Error navegando al post desde foro', e);
                 }
