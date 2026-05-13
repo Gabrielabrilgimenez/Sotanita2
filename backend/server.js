@@ -1927,7 +1927,16 @@ app.get('/api/videos/:videoId/download', async (req, res) => {
     try {
         const { videoId } = req.params;
         const video = await db.collection('videos').findOne(buildIdFilter(videoId));
-        const primaryMediaUrl = Array.isArray(video?.mediaUrls) && video.mediaUrls.length ? video.mediaUrls[0] : video?.url;
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const requestedIndex = Number.parseInt(req.query.mediaIndex, 10);
+        const selectedIndex = Number.isFinite(requestedIndex)
+            ? Math.max(0, Math.min(requestedIndex, Math.max(mediaUrls.length - 1, 0)))
+            : 0;
+        const primaryMediaUrl = mediaUrls[selectedIndex] || video?.url;
         const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
         const isImageMedia = normalizedMediaType === 'image'
             || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))

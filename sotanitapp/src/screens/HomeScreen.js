@@ -1170,14 +1170,18 @@ export default function HomeScreen({ navigation, route }) {
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
       const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
       const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
-      const webDownloadUrl = downloadUrl;
+      const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download?mediaIndex=${selectedMediaIndex}`;
       const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
+      const isHostedBackend = !/localhost|127\.0\.0\.1/.test(String(BACKEND_URL || ''));
+      const shouldUseDirectDownload = Platform.OS === 'web' || isHostedBackend;
+      const resolvedDownloadUrl = shouldUseDirectDownload ? webDownloadUrl : downloadUrl;
+      const resolvedFileName = shouldUseDirectDownload ? webDownloadFileName : downloadFileName;
 
       try {
         if (Platform.OS === 'web') {
           const a = document.createElement('a');
-          a.href = webDownloadUrl;
-          a.download = webDownloadFileName;
+          a.href = resolvedDownloadUrl;
+          a.download = resolvedFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -1191,13 +1195,13 @@ export default function HomeScreen({ navigation, route }) {
           return;
         }
 
-        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}_watermarked.${outputExtension}`;
-        const downloadResumable = FileSystem.createDownloadResumable(downloadUrl, localUri);
+        const localUri = FileSystem.documentDirectory + `sotanita_media_${shareVideoId}.${outputExtension}`;
+        const downloadResumable = FileSystem.createDownloadResumable(resolvedDownloadUrl, localUri);
 
         const { uri } = await downloadResumable.downloadAsync();
         const asset = await MediaLibrary.createAssetAsync(uri);
         await MediaLibrary.createAlbumAsync('Sotanita', asset, false).catch(() => {});
-        Alert.alert('Listo', 'Video guardado en la galeria con marca de agua.');
+        Alert.alert('Listo', shouldUseDirectDownload ? 'Video guardado en la galeria.' : 'Video guardado en la galeria con marca de agua.');
       } catch (error) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
