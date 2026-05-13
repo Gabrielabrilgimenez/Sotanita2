@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import StrokeText from '../components/StrokeText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppTheme } from '../hooks/useAppTheme';
@@ -10,7 +11,14 @@ import { formatLikes } from '../utils/format';
 import { getCategories, getWeeklyRankings } from '../api/backend';
 
 export default function RankingScreen({ navigation }) {
-  const { colors, spacing, typography, textScale } = useAppTheme();
+  const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
+  const categoryItemFontSize = 22 * textScale;
+  const categorySelectedFontSize = 26 * textScale;
+  const categoryTextColor = highContrast
+    ? colors.primary
+    : darkMode
+      ? colors.white
+      : colors.primary;
   const [categories, setCategories] = useState(['Todos']);
   const [category, setCategory] = useState('Todos');
   const [showPicker, setShowPicker] = useState(false);
@@ -103,34 +111,45 @@ export default function RankingScreen({ navigation }) {
       );
     }
 
+    const numberColor = rank === 1 ? '#D4AF37' : rank === 2 ? '#C0C0C0' : '#CD7F32';
+    const numberFontSize = size === 'large' ? 40 * textScale : 32 * textScale;
+
     return (
-      <View style={{ alignItems: 'center' }}>
-        <View style={[styles.rankBubble, { backgroundColor: accentColor }]}> 
-          <Text style={{ color: colors.white, fontWeight: typography.weights.bold }}>{rank}</Text>
+      <View style={{ alignItems: 'center', width: size === 'large' ? 164 : 124 }}>
+        <View style={{ position: 'relative' }}>
+          <View style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, width: 56, alignItems: 'flex-end' }}>
+            <StrokeText
+              strokeColor="black"
+              strokeWidth={3}
+              style={{ fontFamily: typography.families.nougat, fontSize: numberFontSize, color: numberColor }}
+            >
+              {String(rank)}
+            </StrokeText>
+          </View>
+
+          <FifaCard
+            username={item.username}
+            team={item.teamName || item.team}
+            position={item.position}
+            rating={item.rating}
+            photoUrl={item.profileImageUrl}
+            backgroundUrl={item.teamImageUrl}
+            frameUrl={item.frameImageId}
+            frameId={item.frameId}
+            size={size}
+            disableShadow
+            onPress={() => navigation.navigate('Home', { videoId: item.videoId })}
+          />
         </View>
-        <FifaCard
-          username={item.username}
-          team={item.teamName || item.team}
-          position={item.position}
-          rating={item.rating}
-          photoUrl={item.profileImageUrl}
-          backgroundUrl={item.teamImageUrl}
-          frameUrl={item.frameImageId}
-          frameId={item.frameId}
-          size={size}
-          disableShadow
-          onPress={() => navigation.navigate('Home', { videoId: item.videoId })}
-        />
-        <Text style={{ color: accentColor, fontSize: typography.sizes[ size === 'large' ? 'xxl' : 'xl' ] * textScale, fontWeight: typography.weights.bold, marginTop: spacing.sm }}>
-          {rank}°
-        </Text>
-        <View style={styles.metricsRow}>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
           <Ionicons name="heart" size={size === 'large' ? 16 : 14} color="#EF4444" />
           <Text style={{ color: colors.text, fontWeight: typography.weights.bold }}>{formatLikes(item.likes)}</Text>
-          <Text style={{ color: colors.textMuted }}>·</Text>
-          <Text style={{ color: colors.textMuted }}>{item.commentsCount} comentarios</Text>
         </View>
-        <Text style={{ color: colors.textMuted, marginTop: 2, fontSize: typography.sizes.xs * textScale }}>
+        <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: typography.sizes.sm * textScale }}>
+          {item.commentsCount} comentarios
+        </Text>
+        <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: typography.sizes.xs * textScale }}>
           Puntuación: {item.score}
         </Text>
       </View>
@@ -141,10 +160,23 @@ export default function RankingScreen({ navigation }) {
     <ScreenGradient>
       <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={[styles.header, { borderBottomColor: colors.border, padding: spacing.md }]}> 
-          <Pressable onPress={() => setShowPicker(true)} style={[styles.categoryBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale }}>{category}</Text>
-            <Ionicons name="chevron-down" size={20} color={colors.text} />
-          </Pressable>
+          <View style={[styles.categorySelectWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <Pressable style={styles.categorySelectButton} onPress={() => setShowPicker(true)}>
+              <Text
+                style={{
+                  color: categoryTextColor,
+                  fontFamily: typography.families.nougat,
+                  fontSize: categorySelectedFontSize,
+                  textAlign: 'center',
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {category}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
+            </Pressable>
+          </View>
 
           <View style={styles.tabRow}>
             <Pressable onPress={() => setActiveTab('previous')} style={[styles.tabToggle, activeTab === 'previous' && { backgroundColor: `${colors.primary}22` }]}>
@@ -169,12 +201,9 @@ export default function RankingScreen({ navigation }) {
           </View>
         ) : hasResults ? (
           <>
-            <View style={{ paddingTop: 22, alignItems: 'center' }}>
-              <View style={[styles.crown, { backgroundColor: colors.primary }]}>
-                <Text style={{ fontSize: 24 }}>👑</Text>
-              </View>
-              {renderPodiumCard(topThree[0], 1, 'large', colors.primary)}
-            </View>
+                <View style={{ paddingTop: 22, alignItems: 'center' }}>
+                  {renderPodiumCard(topThree[0], 1, 'large', colors.primary)}
+                </View>
 
             <View style={[styles.bottomPodium, { paddingHorizontal: spacing.md }]}> 
               {renderPodiumCard(topThree[1], 2, 'medium', '#9CA3AF')}
@@ -205,7 +234,7 @@ export default function RankingScreen({ navigation }) {
                 }}
                 style={[styles.menuItem, item === category && { backgroundColor: `${colors.primary}22` }]}
               >
-                <Text style={{ color: colors.text, fontWeight: typography.weights.semibold }}>{item}</Text>
+                <Text style={{ color: categoryTextColor, fontFamily: typography.families.nougat, fontSize: categoryItemFontSize, textAlign: 'center' }}>{item}</Text>
               </Pressable>
             ))}
           </View>
@@ -229,6 +258,10 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
   },
+  categorySelectWrap: { borderWidth: 0, borderRadius: 18, minHeight: 52, justifyContent: 'center', backgroundColor: 'transparent', width: '100%' },
+  categorySelectButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8 },
+  categoryMenu: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  categoryMenuItem: { paddingVertical: 14, paddingHorizontal: 16 },
   tabRow: {
     marginTop: 12,
     flexDirection: 'row',
@@ -245,28 +278,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
-  crown: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: -18,
-    zIndex: 2,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  bottomPodium: {
-    marginTop: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-    alignItems: 'flex-start',
-  },
   rankBubble: {
     width: 36,
     height: 36,
@@ -275,6 +286,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: -14,
     zIndex: 2,
+  },
+  bottomPodium: {
+    marginTop: 16,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    alignItems: 'flex-start',
   },
   emptyCard: {
     width: 100,

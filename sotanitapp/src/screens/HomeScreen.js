@@ -1161,9 +1161,9 @@ export default function HomeScreen({ navigation, route }) {
       const outputExtension = isImageMedia ? 'jpg' : 'mp4';
       const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
-      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
+      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
       const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
-      const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download`;
+      const webDownloadUrl = downloadUrl;
       const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
 
       try {
@@ -1195,7 +1195,7 @@ export default function HomeScreen({ navigation, route }) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [shareVideoId]);
+    }, [shareVideoId, shareCarouselIndex, videos, containerHeight, screenWidth]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {
