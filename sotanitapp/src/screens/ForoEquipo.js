@@ -126,7 +126,9 @@ export default function ForoEquipo({ route, navigation }) {
     })();
 
     // Configurar WebSocket para mensajes del foro
-    const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
+    const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
+      .replace(/\/+$/, '')
+      .replace(/\/api$/, '');
     
     if (!socketRef.current) {
       socketRef.current = io(apiBaseUrl, {

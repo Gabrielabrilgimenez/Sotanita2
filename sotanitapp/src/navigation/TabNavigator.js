@@ -53,6 +53,7 @@ export default function TabNavigator({ navigation }) {
   const [modalNotifications, setModalNotifications] = useState([]);
   const [loadingModalNotifications, setLoadingModalNotifications] = useState(false);
   const [loadingDeleteNotifications, setLoadingDeleteNotifications] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showProfileTransition, setShowProfileTransition] = useState(false);
   const [isProfileAnimating, setIsProfileAnimating] = useState(false);
@@ -258,6 +259,7 @@ export default function TabNavigator({ navigation }) {
       await deleteAllNotifications(currentUserEmail);
       setModalNotifications([]);
       setUnreadCount(0);
+      setShowDeleteConfirmModal(false);
     } catch (error) {
       console.error('Error al eliminar notificaciones:', error);
       Alert.alert('Error', `No se pudieron eliminar las notificaciones: ${error.message}`);
@@ -278,7 +280,9 @@ export default function TabNavigator({ navigation }) {
       return;
     }
 
-    const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
+    const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
+      .replace(/\/+$/, '')
+      .replace(/\/api$/, '');
     
     // Conectar al WebSocket
     if (!socketRef.current) {
@@ -500,7 +504,10 @@ export default function TabNavigator({ navigation }) {
         visible={showNotificationsModal}
         transparent
         animationType="none"
-        onRequestClose={() => setShowNotifications(false)}
+        onRequestClose={() => {
+          setShowDeleteConfirmModal(false);
+          setShowNotifications(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowNotifications(false)} pointerEvents="auto">
@@ -508,23 +515,10 @@ export default function TabNavigator({ navigation }) {
           </Pressable>
           {modalNotifications.length > 0 && (
             <Pressable
-              onPress={() => {
-                Alert.alert(
-                  'Limpiar notificaciones',
-                  '¿Estás seguro de que deseas eliminar todas tus notificaciones?',
-                  [
-                    { text: 'Cancelar', style: 'cancel' },
-                    {
-                      text: 'Eliminar',
-                      style: 'destructive',
-                      onPress: handleDeleteAllNotifications,
-                    },
-                  ]
-                );
-              }}
+              onPress={() => setShowDeleteConfirmModal(true)}
               style={[styles.cleanButtonFixed, { backgroundColor: colors.danger }]}
             >
-              <Ionicons name="sparkles" size={28} color={colors.white} />
+              <Ionicons name="trash-outline" size={28} color={colors.white} />
             </Pressable>
           )}
           <Animated.View
@@ -588,6 +582,61 @@ export default function TabNavigator({ navigation }) {
               }
             />
           </Animated.View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showDeleteConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirmModal(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
+            onPress={() => setShowDeleteConfirmModal(false)}
+          />
+          <View style={[styles.confirmCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="trash-outline" size={34} color={colors.danger} />
+            <Text
+              style={{
+                color: colors.text,
+                fontFamily: typography.families.nougat,
+                fontSize: typography.sizes.lg * textScale,
+                fontWeight: typography.weights.bold,
+                textAlign: 'center',
+                marginTop: spacing.sm,
+              }}
+            >
+              ¿Quieres borrar notificaciones?
+            </Text>
+            <Text
+              style={{
+                color: colors.textMuted,
+                textAlign: 'center',
+                marginTop: spacing.xs,
+                lineHeight: 20,
+              }}
+            >
+              Se eliminarán todas las notificaciones de este usuario.
+            </Text>
+
+            <View style={styles.confirmActions}>
+              <Pressable
+                onPress={() => setShowDeleteConfirmModal(false)}
+                style={[styles.confirmButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              >
+                <Text style={{ color: colors.text, fontWeight: typography.weights.semibold }}>Borrar</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleDeleteAllNotifications}
+                style={[styles.confirmButton, { backgroundColor: colors.danger, borderColor: colors.danger }]}
+              >
+                <Text style={{ color: colors.white, fontWeight: typography.weights.semibold }}>Confirmar</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -660,6 +709,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
+  },
+  confirmOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 20,
+    alignItems: 'center',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+    width: '100%',
+  },
+  confirmButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileCardTab: {
     width: 84,

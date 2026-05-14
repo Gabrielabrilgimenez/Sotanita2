@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Audio, ResizeMode, Video } from '../utils/media';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById, postForumMessage } from '../api/backend';
+import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, deleteVideo, getTeamById, postForumMessage } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 import FifaCard from '../components/FifaCard';
@@ -31,6 +31,22 @@ const isNonMobileDevice = () => {
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
+};
+
+const normalizeUserId = (value) => String(value || '').trim().toLowerCase();
+
+const matchesUserIdentifier = (sourceValue, user) => {
+  const normalizedSource = normalizeUserId(sourceValue);
+  if (!normalizedSource) return false;
+
+  const candidates = [
+    user?.email,
+    user?.id,
+    user?.username,
+    user?.email ? String(user.email).split('@')[0] : '',
+  ].map(normalizeUserId).filter(Boolean);
+
+  return candidates.includes(normalizedSource);
 };
 
 const parseCarouselIndex = (value) => {
@@ -107,14 +123,17 @@ const FeedVideoItem = ({
   isActive,
   height,
   onLikePress,
+  onDeletePress,
   onCommentPress,
   onSharePress,
   commentsCount,
   liking,
+  deleting,
   isAudioPlaying,
   isRecording,
   carouselIndex,
   onCarouselIndexChange,
+  isOwnVideo,
 }) => {
   const { colors, typography, textScale, spacing } = useAppTheme();
   const videoRef = useRef(null);
@@ -278,6 +297,15 @@ const FeedVideoItem = ({
       </View>
 
       <View style={[styles.sideActions, { bottom: spacing.xxl }]}>
+        {isOwnVideo ? (
+          <Pressable style={styles.actionWrap} onPress={() => onDeletePress(video)} disabled={deleting} hitSlop={10}>
+            <View style={[styles.actionCircle, { backgroundColor: colors.danger, borderWidth: 1, borderColor: '#ffffff55' }]}>
+              <Ionicons name="trash-outline" size={24} color={colors.white} />
+            </View>
+            <Text style={styles.actionText}>Borrar</Text>
+          </Pressable>
+        ) : null}
+
         <Pressable style={styles.actionWrap} onPress={() => onLikePress(video)} disabled={liking}>
           <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}>
             <Ionicons name={video.hasLiked ? 'heart' : 'heart-outline'} size={28} color={video.hasLiked ? '#ef4444' : colors.white} />
@@ -321,6 +349,8 @@ export default function HomeScreen({ navigation, route }) {
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareVideoId, setShareVideoId] = useState(null);
   const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
+  const [deletingVideoId, setDeletingVideoId] = useState(null);
+  const [pendingDeleteVideo, setPendingDeleteVideo] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -585,6 +615,61 @@ export default function HomeScreen({ navigation, route }) {
       setLikingVideoId(null);
     }
   }, [isLoggedIn, user?.email, likingVideoId]);
+
+  const handleDeleteVideo = useCallback((video) => {
+    if (!isLoggedIn || !user?.email) {
+      Alert.alert('Inicia sesion', 'Debes iniciar sesion para borrar videos.');
+      return;
+    }
+
+    if (!video?.id || deletingVideoId === video.id) return;
+
+    const ownerMatches = matchesUserIdentifier(video.id_usuario, user)
+      || matchesUserIdentifier(video.uploaderCard?.username, user)
+      || matchesUserIdentifier(video.uploaderCard?.email, user)
+      || matchesUserIdentifier(video.uploaderCard?.id, user);
+
+    if (!ownerMatches) {
+      Alert.alert('No permitido', 'Solo puedes borrar tus propios videos.');
+      return;
+    }
+
+    setPendingDeleteVideo(video);
+  }, [deletingVideoId, isLoggedIn, selectedVideoId, user?.email]);
+
+  const confirmDeleteVideo = useCallback(async () => {
+    if (!pendingDeleteVideo?.id || !user?.email) {
+      setPendingDeleteVideo(null);
+      return;
+    }
+
+    setDeletingVideoId(pendingDeleteVideo.id);
+    try {
+      await deleteVideo(pendingDeleteVideo.id, user.email);
+      setVideos((prev) => prev.filter((item) => item.id !== pendingDeleteVideo.id));
+      setCommentsByVideo((prev) => {
+        const next = { ...prev };
+        delete next[pendingDeleteVideo.id];
+        return next;
+      });
+      setCarouselIndexByVideo((prev) => {
+        const next = { ...prev };
+        delete next[pendingDeleteVideo.id];
+        return next;
+      });
+
+      if (String(selectedVideoId) === String(pendingDeleteVideo.id)) {
+        setShowComments(false);
+        setSelectedVideoId(null);
+      }
+
+      setPendingDeleteVideo(null);
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo borrar el video.');
+    } finally {
+      setDeletingVideoId(null);
+    }
+  }, [pendingDeleteVideo, selectedVideoId, user?.email]);
 
   const mapComment = useCallback((comment) => ({
     id: comment.id || comment._id,
@@ -1020,6 +1105,7 @@ export default function HomeScreen({ navigation, route }) {
 
   const activeComments = selectedVideoId ? (commentsByVideo[selectedVideoId] || []) : [];
   const activeVideo = visibleVideos[activeIndex];
+  const currentUserId = normalizeUserId(user?.email || user?.id || user?.username || (user?.email ? String(user.email).split('@')[0] : ''));
   const activeMediaUrls = Array.isArray(activeVideo?.mediaUrls) && activeVideo?.mediaUrls?.length
     ? activeVideo.mediaUrls
     : activeVideo?.url
@@ -1413,12 +1499,15 @@ export default function HomeScreen({ navigation, route }) {
                isActive={index === activeIndex && isFocused} 
                height={containerHeight}
                onLikePress={handleLike}
+               onDeletePress={handleDeleteVideo}
                onCommentPress={openComments}
                onSharePress={handleSharePress}
                commentsCount={item.commentsCount ?? (commentsByVideo[item.id] || []).length}
+               deleting={deletingVideoId === item.id}
                isAudioPlaying={isAudioPlaying}
               isRecording={isRecording}
                liking={likingVideoId === item.id}
+               isOwnVideo={matchesUserIdentifier(item.id_usuario, user) || matchesUserIdentifier(item.uploaderCard?.username, user)}
               carouselIndex={carouselIndexByVideo[item.id] || 0}
               onCarouselIndexChange={(nextIndex) => handleCarouselIndexChange(item.id, nextIndex)}
             />
@@ -1612,6 +1701,40 @@ export default function HomeScreen({ navigation, route }) {
               </View>
             ) : null}
           </Animated.View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(pendingDeleteVideo)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingDeleteVideo(null)}
+      >
+        <View style={styles.deleteConfirmOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPendingDeleteVideo(null)} />
+          <View style={[styles.deleteConfirmCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="trash-outline" size={34} color={colors.danger} />
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, marginTop: 10, textAlign: 'center' }}>
+              ¿Quieres borrar este video?
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+              Se eliminará de forma permanente.
+            </Text>
+            <View style={styles.deleteConfirmActions}>
+              <Pressable
+                style={[styles.deleteConfirmButton, { backgroundColor: colors.surfaceElevated, borderColor: colors.border, borderWidth: 1 }]}
+                onPress={() => setPendingDeleteVideo(null)}
+              >
+                <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deleteConfirmButton, { backgroundColor: colors.danger }]}
+                onPress={confirmDeleteVideo}
+              >
+                <Text style={{ color: colors.white, fontWeight: '700' }}>Confirmar</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
 
