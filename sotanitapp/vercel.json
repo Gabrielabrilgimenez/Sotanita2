@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/share/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/feed/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}

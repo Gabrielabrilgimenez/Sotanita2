@@ -5,7 +5,7 @@
     "scheme": "sotanitapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/LOGO.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -21,10 +21,11 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.anonymous.sotanitapp"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/LOGO.png"
     },
     "plugins": [
       "expo-sharing"

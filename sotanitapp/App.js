@@ -16,12 +16,20 @@ const linking = {
   prefixes: ['sotanitapp://', ...(webPrefix ? [webPrefix] : [])],
   config: {
     screens: {
+      Share: {
+        path: 'share/:videoId?',
+        parse: {
+          videoId: (videoId) => videoId,
+          carouselIndex: (carouselIndex) => carouselIndex,
+        },
+      },
       MainTabs: {
         screens: {
           Home: {
-            path: 'feed',
+            path: 'feed/:videoId?',
             parse: {
               videoId: (videoId) => videoId,
+              carouselIndex: (carouselIndex) => carouselIndex,
             },
           },
         },
@@ -35,6 +43,32 @@ const linking = {
     }
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const href = window.location.href;
+      
+      // Si la URL es raíz (sin /share/ o /feed/), normalizarla a /feed/
+      if (href) {
+        try {
+          const url = new URL(href);
+          const pathname = url.pathname || '/';
+          
+          // Si es raíz o no tiene ruta reconocida, ir a /feed/
+          if (pathname === '/' || (pathname.length <= 1)) {
+            return `${url.origin}/feed/`;
+          }
+          
+          // Si ya tiene /share/ o /feed/, devolverlo como está
+          if (pathname.includes('/share/') || pathname.includes('/feed/')) {
+            return href;
+          }
+          
+          // Si no es raíz pero tampoco es /share/ o /feed/, ir a /feed/
+          return `${url.origin}/feed/`;
+        } catch (e) {
+          // Fallback si hay error parseando URL
+          return `${webPrefix}/feed/`;
+        }
+      }
+      
       return window.location.href;
     }
 

@@ -10,6 +10,8 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 require('dotenv').config();
@@ -56,6 +58,50 @@ app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
+// Directorio para archivos temporales que se compartirán desde móviles
+const TEMP_SHARES_DIR = path.join(__dirname, 'temp-shares');
+if (!fs.existsSync(TEMP_SHARES_DIR)) {
+    try {
+        fs.mkdirSync(TEMP_SHARES_DIR, { recursive: true });
+    } catch (e) {
+        console.error('No se pudo crear temp-shares dir:', e.message);
+    }
+}
+app.use('/temp-shares', express.static(TEMP_SHARES_DIR));
+
+// Configurable TTL (segundos) para archivos en temp-shares
+const TEMP_SHARES_TTL_SECONDS = Number(process.env.TEMP_SHARES_TTL_SECONDS || 3600); // 1 hora por defecto
+const TEMP_SHARES_CLEANUP_INTERVAL_MS = Number(process.env.TEMP_SHARES_CLEANUP_INTERVAL_MS || 15 * 60 * 1000); // 15 min
+
+function cleanupTempShares() {
+    try {
+        const files = fs.readdirSync(TEMP_SHARES_DIR);
+        const now = Date.now();
+        files.forEach((file) => {
+            try {
+                const full = path.join(TEMP_SHARES_DIR, file);
+                const stat = fs.statSync(full);
+                const mtime = stat.mtimeMs || stat.ctimeMs || 0;
+                if ((now - mtime) > (TEMP_SHARES_TTL_SECONDS * 1000)) {
+                    fs.unlinkSync(full);
+                    console.log('🧹 Eliminado temp-share:', full);
+                }
+            } catch (e) {
+                // no bloquear
+            }
+        });
+    } catch (e) {
+        console.error('Error cleanupTempShares:', e.message);
+    }
+}
+
+// Ejecutar limpieza periódica
+setInterval(() => {
+    cleanupTempShares();
+}, TEMP_SHARES_CLEANUP_INTERVAL_MS);
+// Ejecutar al iniciar también
+cleanupTempShares();
+
 // --- Cloudinary Config ---
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -66,9 +112,43 @@ cloudinary.config({
 const upload = multer({ dest: 'uploads/' });
 const WATERMARK_PATH = path.join(__dirname, '..', 'sotanitapp', 'assets', 'watermark.png');
 
+async function downloadRemoteFileToPath(url, destinationPath) {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+        throw new Error('No se pudo descargar el archivo remoto');
+    }
+
+    const nodeStream = Readable.fromWeb ? Readable.fromWeb(response.body) : response.body;
+    await pipeline(nodeStream, fs.createWriteStream(destinationPath));
+    return response.headers.get('content-type') || null;
+}
+
+async function streamRemoteFileToResponse(url, res, fileNameHint) {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+        res.status(502).json({ message: 'No se pudo descargar el archivo original' });
+        return false;
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (fileNameHint) {
+        res.setHeader('Content-Disposition', `attachment; filename="${fileNameHint}"`);
+    }
+    res.setHeader('Content-Type', contentType);
+
+    const nodeStream = Readable.fromWeb ? Readable.fromWeb(response.body) : response.body;
+    await pipeline(nodeStream, res);
+    return true;
+}
+
 function isLikelyImageUrl(url) {
     const value = String(url || '').toLowerCase();
     return value.endsWith('.jpg') || value.endsWith('.jpeg') || value.endsWith('.png') || value.endsWith('.webp') || value.endsWith('.gif') || value.endsWith('.bmp') || value.endsWith('.tiff');
+}
+
+function normalizeEvenDimension(value) {
+    const safeValue = Math.max(2, Number(value) || 2);
+    return safeValue % 2 === 0 ? safeValue : safeValue - 1;
 }
 
 const WEEKLY_RANK_AWARDS = {
@@ -653,6 +733,32 @@ app.get('/api/rankings/weekly', async (req, res) => {
     }
 });
 
+// --- Username availability check (DEBE estar ANTES de /api/usuarios/:id) ---
+app.get('/api/usuarios/usernameDisponible', async (req, res) => {
+    try {
+        const username = String(req.query.username || '').trim();
+        if (!username) return res.status(400).json({ message: 'username es obligatorio' });
+
+        if (username.length < 3 || username.length > 10) {
+            return res.json({ available: false, reason: 'length' });
+        }
+
+        if (!/^[a-zA-Z0-9.\-]+$/.test(username)) {
+            return res.json({ available: false, reason: 'invalid_chars' });
+        }
+
+        if (!/[a-zA-Z]/.test(username)) {
+            return res.json({ available: false, reason: 'needs_letter' });
+        }
+
+        const existing = await db.collection('perfiles').findOne({ username }, { collation: { locale: 'es', strength: 2 } });
+        return res.json({ available: !Boolean(existing) });
+    } catch (err) {
+        console.error('Error checking username availability', err.message);
+        return res.status(500).json({ message: 'Error interno' });
+    }
+});
+
 app.get('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -867,13 +973,36 @@ app.get('/api/foros/:teamId', async (req, res) => {
 app.post('/api/foros/:teamId', async (req, res) => {
     try {
         const { teamId } = req.params;
-        const { user, type, text, audioUrl } = req.body || {};
+        const { user, type, text, audioUrl, share } = req.body || {};
 
         if (!teamId) return res.status(400).json({ message: 'teamId es obligatorio' });
         if (!user) return res.status(400).json({ message: 'user es obligatorio' });
-        if (!type || (type !== 'text' && type !== 'audio')) return res.status(400).json({ message: 'type invalido' });
+
+        const allowedTypes = ['text', 'audio', 'share'];
+        if (!type || !allowedTypes.includes(type)) return res.status(400).json({ message: 'type invalido' });
+
         if (type === 'text' && (!text || String(text).trim().length === 0)) return res.status(400).json({ message: 'text es obligatorio para type=text' });
         if (type === 'text' && String(text).length > 500) return res.status(400).json({ message: 'text supera 500 caracteres' });
+        if (type === 'audio' && (!audioUrl || String(audioUrl).trim().length === 0)) return res.status(400).json({ message: 'audioUrl es obligatorio para type=audio' });
+
+        // For share type, accept a 'share' object with videoId and optional thumbnailUrl/title/mediaType
+        let shareObj = null;
+        if (type === 'share') {
+            if (!share || (!share.videoId && !share.video_id)) {
+                return res.status(400).json({ message: 'share.videoId es obligatorio para type=share' });
+            }
+
+            shareObj = {
+                videoId: String(share.videoId || share.video_id),
+                thumbnailUrl: share.thumbnailUrl || share.thumbnail_url || null,
+                title: String(share.title || share.titulo || share.name || '').trim() || null,
+                mediaType: String(share.mediaType || share.media_type || '').trim().toLowerCase() || null,
+                carouselIndex: (() => {
+                    const parsedIndex = Number.parseInt(String(share.carouselIndex ?? share.carousel_index ?? share.mediaIndex ?? share.media_index ?? ''), 10);
+                    return Number.isFinite(parsedIndex) && parsedIndex >= 0 ? parsedIndex : null;
+                })(),
+            };
+        }
 
         // Normalize user identifier: prefer email (lowercased) when present
         const rawUser = String(user || '').trim();
@@ -885,6 +1014,7 @@ app.post('/api/foros/:teamId', async (req, res) => {
             type,
             audioUrl: type === 'audio' ? (audioUrl || null) : null,
             text: type === 'text' ? String(text).trim() : null,
+            share: shareObj,
             date: new Date(),
         };
 
@@ -1528,6 +1658,10 @@ async function handleGetTeamIdByName(req, res) {
     }
 }
 
+// --- Get Team Routes (DEBEN estar ANTES de /api/equipos/:id) ---
+app.get('/api/equipos/id', handleGetTeamIdByName);
+app.get('/api/equipo/idPorNombre', handleGetTeamIdByName);
+
 app.get('/api/equipos/:id', async (req, res) => {
     const { id } = req.params;
 
@@ -1575,9 +1709,6 @@ app.get('/api/equipos/:id', async (req, res) => {
         return res.status(500).json({ message: 'Error obteniendo equipo' });
     }
 });
-
-app.get('/api/equipos/id', handleGetTeamIdByName);
-app.get('/api/equipo/idPorNombre', handleGetTeamIdByName);
 
 async function handleCreateUser(req, res) {
     const parsed = createUserSchema.safeParse(req.body);
@@ -1691,32 +1822,6 @@ async function handleCreateUser(req, res) {
 
 app.post('/api/usuarios', handleCreateUser);
 app.post('/api/crearNuevoUsuario', handleCreateUser);
-
-// Check username availability
-app.get('/api/usuarios/usernameDisponible', async (req, res) => {
-    try {
-        const username = String(req.query.username || '').trim();
-        if (!username) return res.status(400).json({ message: 'username es obligatorio' });
-
-        if (username.length < 3 || username.length > 10) {
-            return res.json({ available: false, reason: 'length' });
-        }
-
-        if (!/^[a-zA-Z0-9.\-]+$/.test(username)) {
-            return res.json({ available: false, reason: 'invalid_chars' });
-        }
-
-        if (!/[a-zA-Z]/.test(username)) {
-            return res.json({ available: false, reason: 'needs_letter' });
-        }
-
-        const existing = await db.collection('perfiles').findOne({ username }, { collation: { locale: 'es', strength: 2 } });
-        return res.json({ available: !Boolean(existing) });
-    } catch (err) {
-        console.error('Error checking username availability', err.message);
-        return res.status(500).json({ message: 'Error interno' });
-    }
-});
 
 async function handleUpdateUser(req, res) {
     const { id } = req.params;
@@ -1893,20 +1998,72 @@ async function handleLogin(req, res) {
 
 app.post('/api/login', handleLogin);
 
+app.get('/api/videos/:videoId/download', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const requestedIndex = Number.parseInt(req.query.mediaIndex, 10);
+        const selectedIndex = Number.isFinite(requestedIndex)
+            ? Math.max(0, Math.min(requestedIndex, Math.max(mediaUrls.length - 1, 0)))
+            : 0;
+        const primaryMediaUrl = mediaUrls[selectedIndex] || video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
+
+        if (!video || !primaryMediaUrl) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        let extension = isImageMedia ? 'jpg' : 'mp4';
+        try {
+            const urlPath = new URL(primaryMediaUrl).pathname;
+            const ext = path.extname(urlPath || '').toLowerCase();
+            if (ext) {
+                extension = ext.replace('.', '') || extension;
+            }
+        } catch (e) {
+            // ignore invalid URLs
+        }
+
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const fileName = `media_${safeVideoId}.${extension}`;
+        await streamRemoteFileToResponse(primaryMediaUrl, res, fileName);
+    } catch (err) {
+        console.error('❌ Error en descarga directa:', err.message);
+        return res.status(500).json({ message: 'Error descargando el archivo' });
+    }
+});
+
 app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     try {
         const { videoId } = req.params;
         const video = await db.collection('videos').findOne(buildIdFilter(videoId));
-        const targetWidth = Math.max(1, Number.parseInt(req.query.targetWidth, 10) || 1080);
-        const targetHeight = Math.max(1, Number.parseInt(req.query.targetHeight, 10) || 1920);
-        const isImageMedia = String(video?.mediaType || '').toLowerCase() === 'image' || isLikelyImageUrl(video?.url);
+        const requestedMediaIndex = Number.parseInt(String(req.query.mediaIndex ?? req.query.carouselIndex ?? ''), 10);
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const safeMediaIndex = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+            ? Math.min(requestedMediaIndex, Math.max(mediaUrls.length - 1, 0))
+            : 0;
+        const primaryMediaUrl = mediaUrls[safeMediaIndex] || video?.url;
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const targetWidth = normalizeEvenDimension(Number.parseInt(req.query.targetWidth, 10) || 1080);
+        const targetHeight = normalizeEvenDimension(Number.parseInt(req.query.targetHeight, 10) || 1920);
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
 
-        if (!video || !video.url) {
+        if (!video || !primaryMediaUrl) {
             return res.status(404).json({ message: 'Video no encontrado' });
-        }
-
-        if (!fs.existsSync(WATERMARK_PATH)) {
-            return res.status(500).json({ message: 'No se encontro la marca de agua' });
         }
 
         const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1916,26 +2073,26 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
         const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
         const dispositionName = `video_${safeVideoId}_watermarked.${outputExtension}`;
 
-        const response = await fetch(video.url);
-        if (!response.ok || !response.body) {
-            return res.status(502).json({ message: 'No se pudo descargar el video original' });
+        if (!fs.existsSync(WATERMARK_PATH)) {
+            const directName = `video_${safeVideoId}.${outputExtension}`;
+            await streamRemoteFileToResponse(primaryMediaUrl, res, directName);
+            return;
         }
 
-        const sourceBuffer = Buffer.from(await response.arrayBuffer());
-        fs.writeFileSync(sourcePath, sourceBuffer);
+        await downloadRemoteFileToPath(primaryMediaUrl, sourcePath);
 
         ffmpeg(sourcePath)
             .input(WATERMARK_PATH)
             .complexFilter([
                 `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
-                `[1:v][base]scale2ref=w=main_w*0.35:h=ih/3[wm][base2]`,
+                `[1:v][base]scale2ref=w=main_w*0.28:h=ih/6[wm][base2]`,
                 `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
             ])
             .outputOptions([
                 '-map', '[outv]',
                 ...(isImageMedia
                     ? ['-frames:v', '1', '-q:v', '2']
-                    : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', '-movflags', '+faststart']),
+                    : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-level', '3.0', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
             ])
             .on('error', (error) => {
                 console.error('❌ Error generando video con marca de agua:', error.message);
@@ -1967,10 +2124,115 @@ app.get('/api/videos/:videoId/download-watermarked', async (req, res) => {
     }
 });
 
+// --- Preparar archivo en temp-shares para compartir desde móvil ---
+app.post('/api/temp-shares/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const requestedMediaIndex = Number.parseInt(String(req.query.mediaIndex ?? req.query.carouselIndex ?? ''), 10);
+        const video = await db.collection('videos').findOne(buildIdFilter(videoId));
+        const mediaUrls = Array.isArray(video?.mediaUrls) && video.mediaUrls.length
+            ? video.mediaUrls
+            : video?.url
+                ? [video.url]
+                : [];
+        const safeMediaIndex = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+            ? Math.min(requestedMediaIndex, Math.max(mediaUrls.length - 1, 0))
+            : 0;
+        const primaryMediaUrl = mediaUrls[safeMediaIndex] || video?.url;
+
+        if (!video || !primaryMediaUrl) {
+            return res.status(404).json({ message: 'Video no encontrado' });
+        }
+
+        const normalizedMediaType = String(video?.mediaType || '').toLowerCase();
+        const isImageMedia = normalizedMediaType === 'image'
+            || (normalizedMediaType === 'carousel' && !String(primaryMediaUrl || '').toLowerCase().match(/\.(mp4|mov|m4v)(\?|$)/))
+            || isLikelyImageUrl(primaryMediaUrl);
+        const safeVideoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const outputExtension = isImageMedia ? 'jpg' : 'mp4';
+        const fileName = `share_${safeVideoId}.${outputExtension}`;
+        const destPath = path.join(TEMP_SHARES_DIR, fileName);
+
+        // Si ya existe, devolver la URL directamente
+        if (fs.existsSync(destPath)) {
+            const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+            const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+            const shareUrl = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+                ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${safeMediaIndex}`
+                : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+            return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl });
+        }
+
+        // Crear archivos temporales y generar marca de agua (reutiliza pipeline existente)
+        const sourceExtension = isImageMedia ? 'jpg' : 'mp4';
+        const sourcePath = path.join(os.tmpdir(), `sotanita-source-${safeVideoId}-${Date.now()}.${sourceExtension}`);
+        const outputPath = path.join(os.tmpdir(), `sotanita-watermarked-${safeVideoId}-${Date.now()}.${outputExtension}`);
+
+        const response = await fetch(primaryMediaUrl);
+        if (!response.ok || !response.body) {
+            return res.status(502).json({ message: 'No se pudo descargar el video original' });
+        }
+
+        const sourceBuffer = Buffer.from(await response.arrayBuffer());
+        fs.writeFileSync(sourcePath, sourceBuffer);
+
+        const targetWidth = Math.max(1, Number.parseInt(req.query.targetWidth, 10) || 1080);
+        const targetHeight = Math.max(1, Number.parseInt(req.query.targetHeight, 10) || 1920);
+
+        await new Promise((resolve, reject) => {
+            ffmpeg(sourcePath)
+                .input(WATERMARK_PATH)
+                .complexFilter([
+                    `[0:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}[base]`,
+                    `[1:v][base]scale2ref=w=main_w*0.28:h=ih/6[wm][base2]`,
+                    `[base2][wm]overlay=(main_w-overlay_w)/2:main_h-overlay_h-55[outv]`,
+                ])
+                .outputOptions([
+                    '-map', '[outv]',
+                    ...(isImageMedia
+                        ? ['-frames:v', '1', '-q:v', '2']
+                        : ['-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-level', '3.0', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart']),
+                ])
+                .on('error', (error) => {
+                    console.error('❌ Error generando archivo para temp-shares:', error.message);
+                    if (fs.existsSync(outputPath)) fs.unlink(outputPath, () => {});
+                    if (fs.existsSync(sourcePath)) fs.unlink(sourcePath, () => {});
+                    reject(error);
+                })
+                .on('end', () => resolve())
+                .save(outputPath);
+        });
+
+        // Mover a carpeta temp-shares
+        try {
+            fs.renameSync(outputPath, destPath);
+        } catch (e) {
+            // fallback copy
+            fs.copyFileSync(outputPath, destPath);
+            fs.unlinkSync(outputPath);
+        }
+
+        if (fs.existsSync(sourcePath)) fs.unlink(sourcePath, () => {});
+
+        const host = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+                const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+                const shareUrl = Number.isFinite(requestedMediaIndex) && requestedMediaIndex >= 0
+                    ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${safeMediaIndex}`
+                    : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+                return res.json({ fileUrl: `${host}/temp-shares/${encodeURIComponent(fileName)}`, shareUrl });
+    } catch (err) {
+        console.error('❌ Error en POST /api/temp-shares/:videoId', err.message);
+        return res.status(500).json({ message: 'Error preparando archivo para compartir' });
+    }
+});
+
 // --- Share Link (Intermediario inteligente) ---
 app.get('/share', async (req, res) => {
     try {
         const videoId = req.query.videoId;
+        const rawCarouselIndex = req.query.carouselIndex ?? req.query.mediaIndex;
+        const parsedCarouselIndex = Number.parseInt(String(rawCarouselIndex ?? ''), 10);
+        const hasCarouselIndex = Number.isFinite(parsedCarouselIndex) && parsedCarouselIndex >= 0;
         if (!videoId) {
             return res.status(400).json({ message: 'videoId es obligatorio' });
         }
@@ -1979,86 +2241,11 @@ app.get('/share', async (req, res) => {
         if (!video) {
             return res.status(404).send('Video no encontrado');
         }
-
-        // Construir URL base del frontend
-        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
-        
-        const origin = req.get('origin');
-        const referer = req.get('referer');
-        
-        if (origin) {
-            originUrl = origin;
-        } else if (referer) {
-            try {
-                const refererUrl = new URL(referer);
-                originUrl = `${refererUrl.protocol}//${refererUrl.host}`;
-            } catch (e) {
-                // Si hay error parsing, usa el default
-            }
-        }
-
-        const imageUrl = `${originUrl}/assets/links.png`;
-        const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const encodedVideoId = encodeURIComponent(videoId);
-
-        // HTML con detección inteligente de dispositivo y app instalada
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta property="og:title" content="${videoTitle}">
-  <meta property="og:description" content="Mira este video en la Sotanitapp">
-  <meta property="og:image" content="${imageUrl}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:type" content="video.other">
-  <meta property="og:url" content="${originUrl}/share?videoId=${encodedVideoId}">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${videoTitle}">
-  <meta name="twitter:description" content="Mira este video en la Sotanitapp">
-  <meta name="twitter:image" content="${imageUrl}">
-  <title>${videoTitle}</title>
-</head>
-<body style="margin: 0; padding: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <div style="text-align: center; color: #fff;">
-    <p>Cargando video...</p>
-  </div>
-  <script>
-    (function() {
-      const videoId = '${encodedVideoId}';
-      const frontendUrl = '${process.env.FRONTEND_URL || 'http://localhost:3000'}';
-      const webDesktopUrl = frontendUrl + '/feed?videoId=' + videoId;
-      const previewUrl = '${originUrl}/video-preview?videoId=' + videoId;
-      const appDeepLink = 'sotanitapp://feed?videoId=' + videoId;
-
-      // Detectar si es dispositivo móvil/tablet
-      const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-      if (!isMobileOrTablet) {
-        // Desktop: Redirigir a la app web del frontend
-        window.location.href = webDesktopUrl;
-        return;
-      }
-
-      // Mobile/Tablet: Intentar abrir app
-      const startTime = Date.now();
-      const timeout = 1500; // Esperar 1.5s para que se abra la app
-
-      // Intentar abrir app con deep link
-      window.location.href = appDeepLink;
-
-      // Si después de 1.5s seguimos aquí, la app no está instalada
-      setTimeout(() => {
-        // Cambiar a preview con Open Graph (para compartir en redes)
-        window.location.href = previewUrl;
-      }, timeout);
-    })();
-  </script>
-</body>
-</html>`;
-
-        return res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+                const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
+                const redirectUrl = hasCarouselIndex
+                    ? `${frontendUrl}/share/${encodeURIComponent(videoId)}?carouselIndex=${parsedCarouselIndex}`
+                    : `${frontendUrl}/share/${encodeURIComponent(videoId)}`;
+                return res.redirect(302, redirectUrl);
     } catch (err) {
         console.error('❌ Error en GET /share', err.message);
         return res.status(500).send('Error compartiendo video');
@@ -2079,7 +2266,7 @@ app.get('/video-preview', async (req, res) => {
         }
 
         // Construir URL base del frontend (desde origin, referer o env var)
-        let originUrl = process.env.FRONTEND_URL || 'https://sotanitapp.com';
+        let originUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
         
         const origin = req.get('origin');
         const referer = req.get('referer');
@@ -2096,7 +2283,7 @@ app.get('/video-preview', async (req, res) => {
         }
 
         const imageUrl = `${originUrl}/assets/links.png`;
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://sotanita.vercel.app';
         const videoUrl = `${frontendUrl}/feed?videoId=${encodeURIComponent(videoId)}`;
         const videoTitle = (video.title || 'Video en Sotanitapp').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

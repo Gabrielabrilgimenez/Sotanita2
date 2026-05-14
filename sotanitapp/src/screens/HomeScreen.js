@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking, Share } from 'react-native';
 import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Audio, ResizeMode, Video } from '../utils/media';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById } from '../api/backend';
+import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, getTeamById, postForumMessage } from '../api/backend';
 import { useAuth } from '../context/AuthContext';
 import { formatLikes } from '../utils/format';
 import FifaCard from '../components/FifaCard';
@@ -33,52 +33,14 @@ const isLikelyVideoUrl = (url) => {
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
 };
 
-const SHARE_MESSAGE = 'Mira este video en la Sotanitapp';
-const ANDROID_X_URL = 'https://play.google.com/store/apps/details?id=com.twitter.android';
-const IOS_X_URL = 'https://apps.apple.com/us/app/x/id333903271';
-const ANDROID_WHATSAPP_URL = 'https://play.google.com/store/apps/details?id=com.whatsapp';
-const IOS_WHATSAPP_URL = 'https://apps.apple.com/us/app/whatsapp-messenger/id310633997';
-const ANDROID_INSTAGRAM_URL = 'https://play.google.com/store/apps/details?id=com.instagram.android';
-const IOS_INSTAGRAM_URL = 'https://apps.apple.com/us/app/instagram/id389801252';
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'http://localhost:8081';
-
-const getStoreUrlForPlatform = (appName) => {
-  const normalizedAppName = String(appName || '').toLowerCase();
-
-  let androidUrl = ANDROID_X_URL;
-  let iosUrl = IOS_X_URL;
-
-  if (normalizedAppName === 'whatsapp') {
-    androidUrl = ANDROID_WHATSAPP_URL;
-    iosUrl = IOS_WHATSAPP_URL;
-  } else if (normalizedAppName === 'instagram') {
-    androidUrl = ANDROID_INSTAGRAM_URL;
-    iosUrl = IOS_INSTAGRAM_URL;
-  }
-
-  if (Platform.OS === 'android') {
-    return androidUrl;
-  }
-
-  if (Platform.OS === 'ios') {
-    return iosUrl;
-  }
-
-  if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
-    const userAgent = navigator.userAgent || '';
-
-    if (/iphone|ipad|ipod/i.test(userAgent)) {
-      return iosUrl;
-    }
-
-    if (/android/i.test(userAgent)) {
-      return androidUrl;
-    }
-  }
-
-  return androidUrl;
+const parseCarouselIndex = (value) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
+
 
 const isDesktopLikeWeb = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -90,11 +52,18 @@ const isDesktopLikeWeb = () => {
 
 const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
   const [width, setWidth] = useState(0);
+  const scrollRef = useRef(null);
   const lastIndexRef = useRef(activeIndex || 0);
 
   useEffect(() => {
     lastIndexRef.current = activeIndex || 0;
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (!scrollRef.current || !width || !urls.length) return;
+    const safeIndex = Math.max(0, Math.min(activeIndex || 0, urls.length - 1));
+    scrollRef.current.scrollTo({ x: safeIndex * width, y: 0, animated: false });
+  }, [activeIndex, urls.length, width]);
 
   const updateIndexFromOffset = (offsetX) => {
     if (!width) return;
@@ -111,6 +80,7 @@ const MediaCarousel = ({ urls, height, activeIndex, onIndexChange }) => {
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
     >
       <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -253,7 +223,14 @@ const FeedVideoItem = ({
           styles.tapFeedbackOverlay,
           {
             opacity: tapFeedbackAnim,
-            transform: [{ scale: 1 }],
+            transform: [
+              {
+                scale: tapFeedbackAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 2.5],
+                }),
+              },
+            ],
           },
         ]}
       >
@@ -330,8 +307,6 @@ export default function HomeScreen({ navigation, route }) {
   const { colors, typography, textScale, darkMode, highContrast } = useAppTheme();
   const isFocused = useIsFocused();
   const { user, isLoggedIn } = useAuth();
-  const instagramDisabled = isNonMobileDevice();
-  
   const [videos, setVideos] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -390,6 +365,7 @@ export default function HomeScreen({ navigation, route }) {
   const [carouselIndexByVideo, setCarouselIndexByVideo] = useState({});
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [pendingFeedVideoId, setPendingFeedVideoId] = useState(null);
+  const [pendingFeedCarouselIndex, setPendingFeedCarouselIndex] = useState(null);
   const [pendingDeleteComment, setPendingDeleteComment] = useState(null);
   const [loadingNewComment, setLoadingNewComment] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
@@ -468,6 +444,23 @@ export default function HomeScreen({ navigation, route }) {
       });
 
       setVideos(normalizedData);
+
+      if (pendingFeedVideoId && !selectedCategory && pendingFeedCarouselIndex != null) {
+        const pinnedVideo = normalizedData.find((video) => String(video.id) === String(pendingFeedVideoId));
+        if (pinnedVideo) {
+          const pinnedMediaUrls = Array.isArray(pinnedVideo.mediaUrls) && pinnedVideo.mediaUrls.length
+            ? pinnedVideo.mediaUrls
+            : pinnedVideo.url
+              ? [pinnedVideo.url]
+              : [];
+          const clampedIndex = Math.max(0, Math.min(pendingFeedCarouselIndex, Math.max(pinnedMediaUrls.length - 1, 0)));
+          setCarouselIndexByVideo((prev) => ({
+            ...prev,
+            [pendingFeedVideoId]: clampedIndex,
+          }));
+        }
+      }
+
       setActiveIndex(0);
       activeIndexRef.current = 0;
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -482,6 +475,7 @@ export default function HomeScreen({ navigation, route }) {
 
       if (pendingFeedVideoId && !selectedCategory) {
         setPendingFeedVideoId(null);
+        setPendingFeedCarouselIndex(null);
       }
     } catch (error) {
       console.error('Error fetching videos:', error);
@@ -491,7 +485,7 @@ export default function HomeScreen({ navigation, route }) {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [user?.email, selectedCategory, pendingFeedVideoId, pinnedFeedVideoId]);
+  }, [pendingFeedCarouselIndex, user?.email, selectedCategory, pendingFeedVideoId, pinnedFeedVideoId]);
 
   const fetchMoreFeedVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -1034,6 +1028,26 @@ export default function HomeScreen({ navigation, route }) {
   const activeMediaType = activeVideo?.mediaType || (isLikelyVideoUrl(activeVideo?.url) ? 'video' : 'image');
   const showCarouselDots = activeMediaType === 'carousel' || activeMediaUrls.length > 1;
   const activeCarouselIndex = carouselIndexByVideo[activeVideo?.id] || 0;
+  const shareVideo = useMemo(
+    () => videos.find((item) => String(item.id) === String(shareVideoId)),
+    [videos, shareVideoId]
+  );
+  const shareMediaUrls = Array.isArray(shareVideo?.mediaUrls) && shareVideo.mediaUrls.length
+    ? shareVideo.mediaUrls
+    : shareVideo?.url
+      ? [shareVideo.url]
+      : [];
+  const normalizedShareMediaType = String(shareVideo?.mediaType || '').trim().toLowerCase();
+  const isShareCarousel = normalizedShareMediaType === 'carousel' || normalizedShareMediaType === 'carrusel' || shareMediaUrls.length > 1;
+  const isShareImage = normalizedShareMediaType === 'image' || (shareMediaUrls.length > 0 && !isLikelyVideoUrl(shareMediaUrls[0]));
+  const shareCarouselIndex = isShareCarousel
+    ? Math.max(0, Math.min(Number(carouselIndexByVideo[shareVideo?.id] || 0), Math.max(shareMediaUrls.length - 1, 0)))
+    : 0;
+  const shareModalTitle = isShareCarousel
+    ? 'COMPARTIR CARRUSEL'
+    : isShareImage
+      ? 'COMPARTIR FOTO'
+      : 'COMPARTIR VIDEO';
 
   const handleCarouselIndexChange = useCallback((videoId, index) => {
     setCarouselIndexByVideo((prev) => ({
@@ -1042,54 +1056,21 @@ export default function HomeScreen({ navigation, route }) {
     }));
   }, []);
 
-    const buildShareUrl = useCallback((videoId) => {
+    const buildShareUrl = useCallback((videoId, carouselIndex = null) => {
       const encodedVideoId = encodeURIComponent(String(videoId || ''));
 
-      // Usar siempre el endpoint intermediario /share que detecta dispositivo y app instalada
-      return `${BACKEND_URL}/share?videoId=${encodedVideoId}`;
+      // La interfaz pública de share vive en el frontend de Vercel.
+      // Usar path param para que sea reconocida por deep linking
+      const baseUrl = `${FRONTEND_URL}/share/${encodedVideoId}`;
+      if (Number.isInteger(carouselIndex) && carouselIndex >= 0) {
+        return `${baseUrl}?carouselIndex=${carouselIndex}`;
+      }
+      return baseUrl;
     }, []);
 
-    const openShareDestination = useCallback(async ({ appUrl, webUrl, appStoreName }) => {
-      if (Platform.OS === 'web') {
-        if (isDesktopLikeWeb()) {
-          if (typeof window !== 'undefined') {
-            window.open(webUrl, '_blank', 'noopener,noreferrer');
-          }
-          return;
-        }
 
-        if (typeof window !== 'undefined') {
-          const fallbackUrl = getStoreUrlForPlatform(appStoreName);
-          let fallbackTimer = null;
 
-          const handleVisibilityChange = () => {
-            if (document.visibilityState !== 'visible' && fallbackTimer) {
-              clearTimeout(fallbackTimer);
-              fallbackTimer = null;
-              document.removeEventListener('visibilitychange', handleVisibilityChange);
-            }
-          };
 
-          document.addEventListener('visibilitychange', handleVisibilityChange);
-          window.location.href = appUrl;
-          fallbackTimer = window.setTimeout(() => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-            if (document.visibilityState === 'visible') {
-              window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
-            }
-          }, 1400);
-        }
-
-        return;
-      }
-
-      try {
-        await Linking.openURL(appUrl);
-      } catch (error) {
-        await Linking.openURL(getStoreUrlForPlatform(appStoreName));
-      }
-    }, []);
 
     const writeToClipboard = useCallback(async (value) => {
       if (Platform.OS !== 'web') {
@@ -1135,71 +1116,7 @@ export default function HomeScreen({ navigation, route }) {
       setShowShareModal(true);
     }, []);
 
-    const handleShareToX = useCallback(async () => {
-      if (!shareVideoId) {
-        Alert.alert('Error', 'No se ha seleccionado ningun video.');
-        return;
-      }
 
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareText = SHARE_MESSAGE;
-      const webIntentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-      const appIntentUrl = `twitter://post?message=${encodeURIComponent(`${shareText} ${shareUrl}`)}`;
-
-      try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'x',
-        });
-      } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir X para compartir este video.');
-      }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
-
-    const handleShareToWhatsApp = useCallback(async () => {
-      if (!shareVideoId) {
-        Alert.alert('Error', 'No se ha seleccionado ningun video.');
-        return;
-      }
-
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
-      const webIntentUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(shareMessage)}`;
-      const appIntentUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
-
-      try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'whatsapp',
-        });
-      } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir WhatsApp para compartir este video.');
-      }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
-
-    const handleShareToInstagram = useCallback(async () => {
-      if (!shareVideoId) {
-        Alert.alert('Error', 'No se ha seleccionado ningun video.');
-        return;
-      }
-
-      const shareUrl = buildShareUrl(shareVideoId);
-      const shareMessage = `${SHARE_MESSAGE} ${shareUrl}`;
-      const webIntentUrl = `https://www.instagram.com/?url=${encodeURIComponent(shareUrl)}`;
-      const appIntentUrl = `instagram://share?text=${encodeURIComponent(shareMessage)}`;
-
-      try {
-        await openShareDestination({
-          appUrl: appIntentUrl,
-          webUrl: webIntentUrl,
-          appStoreName: 'instagram',
-        });
-      } catch (error) {
-        Alert.alert('Error', 'No se pudo abrir Instagram para compartir este video.');
-      }
-    }, [buildShareUrl, openShareDestination, shareVideoId]);
 
     const closeShareModal = useCallback(() => {
       setShowShareModal(false);
@@ -1209,7 +1126,7 @@ export default function HomeScreen({ navigation, route }) {
     const handleCopyShareLink = useCallback(async () => {
       if (!shareVideoId) return;
 
-      const shareUrl = buildShareUrl(shareVideoId);
+      const shareUrl = buildShareUrl(shareVideoId, isShareCarousel ? shareCarouselIndex : null);
 
       try {
         const copied = await writeToClipboard(shareUrl);
@@ -1223,7 +1140,7 @@ export default function HomeScreen({ navigation, route }) {
       } catch (error) {
         Alert.alert('Error', 'No se pudo copiar el enlace.');
       }
-    }, [buildShareUrl, closeShareModal, shareVideoId, writeToClipboard]);
+    }, [buildShareUrl, closeShareModal, isShareCarousel, shareCarouselIndex, shareVideoId, writeToClipboard]);
 
     const handleDownloadVideo = useCallback(async () => {
       if (!shareVideoId) {
@@ -1231,25 +1148,43 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
+      closeShareModal();
+
+      const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
+      const mediaUrls = Array.isArray(videoToDownload?.mediaUrls) && videoToDownload.mediaUrls.length
+        ? videoToDownload.mediaUrls
+        : videoToDownload?.url
+          ? [videoToDownload.url]
+          : [];
+      const normalizedMediaType = String(videoToDownload?.mediaType || '').toLowerCase();
+      const isCarouselMedia = normalizedMediaType === 'carousel' || normalizedMediaType === 'carrusel' || mediaUrls.length > 1;
+      const selectedMediaIndex = isCarouselMedia
+        ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaUrls.length - 1, 0)))
+        : 0;
+      const primaryMediaUrl = mediaUrls[selectedMediaIndex] || videoToDownload?.url;
+      const isImageMedia = normalizedMediaType === 'image'
+        || (normalizedMediaType === 'carousel' && !isLikelyVideoUrl(primaryMediaUrl))
+        || (!normalizedMediaType && !isLikelyVideoUrl(primaryMediaUrl));
+      const outputExtension = isImageMedia ? 'jpg' : 'mp4';
       const targetWidth = Math.max(1, Math.round(screenWidth || 1080));
       const targetHeight = Math.max(1, Math.round(containerHeight || Math.round(targetWidth * 16 / 9)));
-      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}`;
+      const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
+      const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
+      const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download?mediaIndex=${selectedMediaIndex}`;
+      const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
+      const isHostedBackend = !/localhost|127\.0\.0\.1/.test(String(BACKEND_URL || ''));
+      const shouldUseDirectDownload = Platform.OS === 'web' || isHostedBackend;
+      const resolvedDownloadUrl = shouldUseDirectDownload ? webDownloadUrl : downloadUrl;
+      const resolvedFileName = shouldUseDirectDownload ? webDownloadFileName : downloadFileName;
 
       try {
         if (Platform.OS === 'web') {
-          const res = await fetch(downloadUrl);
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const blob = await res.blob();
           const a = document.createElement('a');
-          const objectUrl = URL.createObjectURL(blob);
-          a.href = objectUrl;
-          a.download = `video_${shareVideoId}_watermarked.mp4`;
+          a.href = resolvedDownloadUrl;
+          a.download = resolvedFileName;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(objectUrl);
           Alert.alert('Listo', 'Descarga iniciada.');
           return;
         }
@@ -1260,18 +1195,18 @@ export default function HomeScreen({ navigation, route }) {
           return;
         }
 
-        const localUri = FileSystem.documentDirectory + `sotanita_video_${shareVideoId}_watermarked.mp4`;
-        const downloadResumable = FileSystem.createDownloadResumable(downloadUrl, localUri);
+        const localUri = FileSystem.documentDirectory + `sotanita_media_${shareVideoId}.${outputExtension}`;
+        const downloadResumable = FileSystem.createDownloadResumable(resolvedDownloadUrl, localUri);
 
         const { uri } = await downloadResumable.downloadAsync();
         const asset = await MediaLibrary.createAssetAsync(uri);
         await MediaLibrary.createAlbumAsync('Sotanita', asset, false).catch(() => {});
-        Alert.alert('Listo', 'Video guardado en la galeria con marca de agua.');
+        Alert.alert('Listo', shouldUseDirectDownload ? 'Video guardado en la galeria.' : 'Video guardado en la galeria con marca de agua.');
       } catch (error) {
         console.error('Download error', error);
         Alert.alert('Error', 'No se pudo descargar el video.');
       }
-    }, [shareVideoId]);
+    }, [shareVideoId, shareCarouselIndex, videos, containerHeight, screenWidth]);
 
     const handleShareToFanZone = useCallback(() => {
       if (!shareVideoId) {
@@ -1279,29 +1214,78 @@ export default function HomeScreen({ navigation, route }) {
         return;
       }
 
-      // Placeholder: perform Fan Zone share flow here.
-      closeShareModal();
-      Alert.alert('Compartido', 'Video enviado a Fan Zone.');
-    }, [shareVideoId, closeShareModal]);
+      // Cerrar el modal inmediatamente (como hace "Copiar enlace")
+      try {
+        closeShareModal();
+      } catch (e) {
+        // ignore
+      }
+
+      // Ejecutar el post al foro en background y notificar cuando termine
+      (async () => {
+        try {
+          const teamId = user?.teamId || user?.team || null;
+          const videoObj = videos.find((v) => String(v.id) === String(shareVideoId));
+          const mediaUrls = Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length
+            ? videoObj.mediaUrls
+            : videoObj?.url
+              ? [videoObj.url]
+              : [];
+          const normalizedVideoType = String(videoObj?.mediaType || '').trim().toLowerCase();
+          const isCarouselMedia = normalizedVideoType === 'carousel' || normalizedVideoType === 'carrusel' || mediaUrls.length > 1;
+          const selectedMediaIndex = isCarouselMedia
+            ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaUrls.length - 1, 0)))
+            : 0;
+          const thumbnail = mediaUrls[selectedMediaIndex] || videoObj?.url || null;
+          const title = videoObj?.title || videoObj?.name || videoObj?.caption || '';
+
+          if (!teamId) {
+            Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+            return;
+          }
+
+          const payload = {
+            user: user?.email || user?.id || user?.username || '',
+            type: 'share',
+            text: title || '',
+            share: {
+              videoId: String(shareVideoId),
+              thumbnailUrl: thumbnail || null,
+              title: title || '',
+              mediaType: videoObj?.mediaType || (Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length > 1 ? 'carousel' : 'video'),
+              carouselIndex: isCarouselMedia ? selectedMediaIndex : null,
+            },
+          };
+          await postForumMessage(teamId, payload);
+          Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+        } catch (err) {
+          console.error('Error compartiendo en Fan Zone', err?.message || err);
+          Alert.alert('Error', err?.message || 'No se pudo compartir en Fan Zone.');
+        }
+      })();
+    }, [shareCarouselIndex, shareVideoId, closeShareModal, user?.teamId, user?.email, user?.id, user?.username, videos]);
   useEffect(() => {
     const targetVideoId = route?.params?.videoId;
+    const targetCarouselIndex = parseCarouselIndex(route?.params?.carouselIndex ?? route?.params?.mediaIndex);
     if (!targetVideoId) {
       return;
     }
 
     setPendingFeedVideoId(String(targetVideoId));
+    setPendingFeedCarouselIndex(targetCarouselIndex);
     setSelectedCategory('');
     setLoading(true);
-  }, [route?.params?.videoId]);
+  }, [route?.params?.carouselIndex, route?.params?.mediaIndex, route?.params?.videoId]);
 
   useFocusEffect(
     useCallback(() => {
       return () => {
         if (route?.params?.videoId) {
-          navigation.setParams({ videoId: undefined });
+          navigation.setParams({ videoId: undefined, carouselIndex: undefined, mediaIndex: undefined });
         }
 
         setPendingFeedVideoId(null);
+        setPendingFeedCarouselIndex(null);
       };
     }, [navigation, route?.params?.videoId])
   );
@@ -1635,11 +1619,11 @@ export default function HomeScreen({ navigation, route }) {
         <Pressable style={styles.shareOverlay} onPress={closeShareModal}>
           <Pressable style={[styles.shareCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: typography.sizes.xl * textScale * 1.5, textAlign: 'center', marginBottom: 8, fontFamily: typography.families.nougat }}>
-              COMPARTIR VIDEO
+              {shareModalTitle}
             </Text>
 
             <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, textAlign: 'center', marginBottom: 12 }}>
-              Suelta el video y ata el movil
+              Comparte este contenido en un toque
             </Text>
 
             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
@@ -1671,28 +1655,6 @@ export default function HomeScreen({ navigation, route }) {
               </Pressable>
             </View>
 
-            <Text style={{ color: colors.textMuted, fontSize: typography.sizes.md * textScale, marginBottom: 12, textAlign: 'center' }}>Compartir en Redes Sociales</Text>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 40, marginBottom: 18 }}>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#1d9bf0' }]} onPress={handleShareToX}>
-                <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(61593)}</Text>
-              </Pressable>
-              <Pressable style={[styles.circleIconButton, { backgroundColor: '#25d366' }]} onPress={handleShareToWhatsApp}>
-                <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff' }}>{String.fromCharCode(62002)}</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.circleIconButton,
-                  { backgroundColor: instagramDisabled ? '#8a8a8a' : '#d7005d', opacity: instagramDisabled ? 0.8 : 1 },
-                ]}
-                onPress={handleShareToInstagram}
-                disabled={instagramDisabled}
-              >
-                <Text style={{ fontFamily: 'Fontello', fontSize: 36, color: '#fff', opacity: instagramDisabled ? 0.85 : 1 }}>
-                  {String.fromCharCode(61805)}
-                </Text>
-              </Pressable>
-            </View>
 
             <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, marginBottom: 8, textAlign: 'center' }}>O si lo prefieres...</Text>
 
@@ -1710,7 +1672,7 @@ export default function HomeScreen({ navigation, route }) {
                   lineHeight: typography.sizes.xl * textScale * 1.25,
                 }}
               >
-                DESCARGAR VIDEO
+                DESCARGAR
               </StrokeText>
             </Pressable>
 
