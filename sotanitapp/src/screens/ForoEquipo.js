@@ -535,7 +535,7 @@ export default function ForoEquipo({ route, navigation }) {
       </View>
     );
   };
-  const scrollRef = useRef(null);
+  
   const scrollOnNextUpdateRef = useRef(false);
   const initialLoadedRef = useRef(false);
   const socketRef = useRef(null);
