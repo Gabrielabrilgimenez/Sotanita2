@@ -93,6 +93,7 @@ export default function ForoEquipo({ route, navigation }) {
   const isFocusedRef = useRef(false);
   const contentHeightRef = useRef(0);
   const viewportHeightRef = useRef(0);
+  const socketRef = useRef(null);
 
   const scrollToBottom = useCallback((animated = true) => {
     try {
@@ -536,9 +537,7 @@ export default function ForoEquipo({ route, navigation }) {
     );
   };
   
-  const scrollOnNextUpdateRef = useRef(false);
-  const initialLoadedRef = useRef(false);
-  const socketRef = useRef(null);
+
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 
