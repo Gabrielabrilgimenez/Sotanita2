@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking, Share } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, StyleSheet, Text, View, RefreshControl, Alert, Image, ScrollView, TextInput, Modal, Platform, Linking, Share, PanResponder } from 'react-native';
 import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
@@ -413,6 +413,8 @@ export default function HomeScreen({ navigation, route }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const offsetRef = useRef(0);
+  const dragStartOffsetRef = useRef(0);
+  const dragStartIndexRef = useRef(0);
   const hasMoreRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const activeIndexRef = useRef(0);
@@ -1085,23 +1087,67 @@ export default function HomeScreen({ navigation, route }) {
     refreshFeed();
   }, [loadCategories, refreshFeed]);
 
-  const updateActiveIndexFromOffset = useCallback((offsetY) => {
-    if (!containerHeight || visibleVideos.length === 0) return;
-    const nextIndex = Math.round(offsetY / containerHeight);
-    const clampedIndex = Math.max(0, Math.min(nextIndex, visibleVideos.length - 1));
-    if (clampedIndex !== activeIndexRef.current) {
-      activeIndexRef.current = clampedIndex;
-      setActiveIndex(clampedIndex);
-    }
-  }, [containerHeight, visibleVideos.length]);
+  const feedPanResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      if (!containerHeight || visibleVideos.length <= 1) return false;
+      const verticalDistance = Math.abs(gestureState.dy);
+      const horizontalDistance = Math.abs(gestureState.dx);
+      return verticalDistance > 8 && verticalDistance > horizontalDistance;
+    },
+    onPanResponderGrant: () => {
+      dragStartOffsetRef.current = activeIndexRef.current * containerHeight;
+      dragStartIndexRef.current = activeIndexRef.current;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      if (!containerHeight || !listRef.current) return;
 
-  const onMomentumScrollEnd = useCallback((event) => {
-    updateActiveIndexFromOffset(event.nativeEvent.contentOffset.y);
-  }, [updateActiveIndexFromOffset]);
+      const maxOffset = Math.max(0, (visibleVideos.length - 1) * containerHeight);
+      const minOffset = Math.max(0, dragStartOffsetRef.current - containerHeight);
+      const maxAllowedOffset = Math.min(maxOffset, dragStartOffsetRef.current + containerHeight);
+      const nextOffset = Math.max(
+        minOffset,
+        Math.min(dragStartOffsetRef.current - gestureState.dy, maxAllowedOffset)
+      );
 
-  const onScroll = useCallback((event) => {
-    updateActiveIndexFromOffset(event.nativeEvent.contentOffset.y);
-  }, [updateActiveIndexFromOffset]);
+      listRef.current.scrollToOffset({
+        offset: nextOffset,
+        animated: false,
+      });
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (!containerHeight || visibleVideos.length === 0 || !listRef.current) return;
+
+      const threshold = Math.max(24, containerHeight * 0.12);
+      const direction = gestureState.dy < -threshold ? 1 : gestureState.dy > threshold ? -1 : 0;
+      const currentIndex = dragStartIndexRef.current;
+      const targetIndex = Math.max(0, Math.min(currentIndex + direction, visibleVideos.length - 1));
+
+      listRef.current.scrollToOffset({
+        offset: targetIndex * containerHeight,
+        animated: true,
+      });
+
+      activeIndexRef.current = targetIndex;
+      setActiveIndex(targetIndex);
+    },
+    onPanResponderTerminate: (_, gestureState) => {
+      if (!containerHeight || visibleVideos.length === 0 || !listRef.current) return;
+
+      const threshold = Math.max(24, containerHeight * 0.12);
+      const direction = gestureState.dy < -threshold ? 1 : gestureState.dy > threshold ? -1 : 0;
+      const currentIndex = dragStartIndexRef.current;
+      const targetIndex = Math.max(0, Math.min(currentIndex + direction, visibleVideos.length - 1));
+
+      listRef.current.scrollToOffset({
+        offset: targetIndex * containerHeight,
+        animated: true,
+      });
+
+      activeIndexRef.current = targetIndex;
+      setActiveIndex(targetIndex);
+    },
+    onShouldBlockNativeResponder: () => true,
+  }), [containerHeight, visibleVideos.length]);
 
   const activeComments = selectedVideoId ? (commentsByVideo[selectedVideoId] || []) : [];
   const activeVideo = visibleVideos[activeIndex];
@@ -1485,12 +1531,13 @@ export default function HomeScreen({ navigation, route }) {
         </View>
       ) : null}
 
-      <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}>
+      <View style={styles.listWrap} onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)} {...feedPanResponder.panHandlers}>
       {loading && videos.length === 0 ? (
         <View style={styles.loaderContainer} />
       ) : containerHeight > 0 ? (
         <FlatList
           ref={listRef}
+          scrollEnabled={false}
           data={visibleVideos}
           extraData={{ activeIndex, isFocused, containerHeight }}
           renderItem={({ item, index }) => (
@@ -1513,12 +1560,7 @@ export default function HomeScreen({ navigation, route }) {
             />
           )}
           keyExtractor={(item) => item.id.toString()}
-          pagingEnabled
-          decelerationRate="fast"
           showsVerticalScrollIndicator={false}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          onMomentumScrollEnd={onMomentumScrollEnd}
           getItemLayout={(_, index) => ({
             length: containerHeight,
             offset: containerHeight * index,
