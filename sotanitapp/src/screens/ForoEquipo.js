@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../api/backend';
@@ -86,12 +87,46 @@ export default function ForoEquipo({ route, navigation }) {
       initialLoadedRef.current = true;
     })();
 
-    const interval = setInterval(fetchMessages, 2500);
+    // Configurar WebSocket para mensajes del foro
+    const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
+    
+    if (!socketRef.current) {
+      socketRef.current = io(apiBaseUrl, {
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+      });
+
+      // Escuchar nuevos mensajes del foro
+      socketRef.current.on('forumMessage', (data) => {
+        if (data.teamId === teamId && mounted) {
+          console.log('📨 Nuevo mensaje del foro:', data.message);
+          setMessages((prev) => [...prev, data.message]);
+        }
+      });
+
+      // Escuchar eliminación de mensajes
+      socketRef.current.on('forumMessageDeleted', (data) => {
+        if (data.teamId === teamId && mounted) {
+          console.log('🗑️ Mensaje eliminado:', data.messageId);
+          setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        }
+      });
+
+      socketRef.current.on('error', (error) => {
+        console.error('❌ Error en WebSocket del foro:', error);
+      });
+    }
+
     return () => {
       mounted = false;
-      clearInterval(interval);
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
-  }, [fetchTeam, fetchMessages]);
+  }, [teamId]);
 
   useEffect(() => {
     // Scroll to bottom when messages are first loaded
@@ -408,6 +443,7 @@ export default function ForoEquipo({ route, navigation }) {
   const scrollRef = useRef(null);
   const scrollOnNextUpdateRef = useRef(false);
   const initialLoadedRef = useRef(false);
+  const socketRef = useRef(null);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 

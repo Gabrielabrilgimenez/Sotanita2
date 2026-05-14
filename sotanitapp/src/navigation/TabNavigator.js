@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, Easing, FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, Alert } from 'react-native';
+import { io } from 'socket.io-client';
 import HomeScreen from '../screens/HomeScreen';
 import RankingScreen from '../screens/RankingScreen';
 import UploadScreen from '../screens/UploadScreen';
@@ -57,6 +58,7 @@ export default function TabNavigator({ navigation }) {
   const [isProfileAnimating, setIsProfileAnimating] = useState(false);
   const profileTransition = useRef(new Animated.Value(0)).current;
   const notificationsAnim = useRef(new Animated.Value(0)).current;
+  const socketRef = useRef(null);
   const profileCloseButtonSource = highContrast
     ? closeButtonContrast
     : darkMode
@@ -264,23 +266,70 @@ export default function TabNavigator({ navigation }) {
     }
   }, [isLoggedIn, user?.email]);
 
+  // WebSocket para actualizar notificaciones en tiempo real
   useEffect(() => {
-    const loadUnreadCount = async () => {
-      if (!isLoggedIn || !user?.email) {
-        setUnreadCount(0);
-        return;
+    if (!isLoggedIn || !user?.email) {
+      // Desconectar si el usuario se desloguea
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
+      setUnreadCount(0);
+      return;
+    }
 
+    const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
+    
+    // Conectar al WebSocket
+    if (!socketRef.current) {
+      socketRef.current = io(apiBaseUrl, {
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+      });
+
+      // Cuando se conecta, enviar el email del usuario
+      socketRef.current.on('connect', () => {
+        console.log('📡 Conectado al WebSocket');
+        socketRef.current.emit('userConnect', String(user.email).trim().toLowerCase());
+      });
+
+      // Escuchar nuevas notificaciones
+      socketRef.current.on('newNotification', (notification) => {
+        console.log('🔔 Nueva notificación:', notification);
+        setUnreadCount((prev) => prev + 1);
+      });
+
+      socketRef.current.on('disconnect', () => {
+        console.log('❌ Desconectado del WebSocket');
+      });
+
+      socketRef.current.on('error', (error) => {
+        console.error('❌ Error en WebSocket:', error);
+      });
+    }
+
+    // Cargar el contador inicial
+    const loadInitialCount = async () => {
       try {
         const count = await getUnreadNotificationsCount(String(user.email).trim().toLowerCase());
         setUnreadCount(count);
       } catch (error) {
-        console.error('Error cargando contador de notificaciones:', error);
+        console.error('Error cargando contador inicial:', error);
       }
     };
 
-    loadUnreadCount();
-  }, [isLoggedIn, user?.email, showNotifications]);
+    loadInitialCount();
+
+    // Limpiar al desmontar el componente
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [isLoggedIn, user?.email]);
 
   return (
     <>

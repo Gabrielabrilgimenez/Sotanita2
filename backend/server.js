@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -17,6 +19,39 @@ if (ffmpegPath) {
 }
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIO(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
+// Mapeo de usuarios conectados: email -> socket.id
+const connectedUsers = new Map();
+
+// WebSocket: Usuario se conecta
+io.on('connection', (socket) => {
+    console.log(`✅ Cliente conectado: ${socket.id}`);
+    
+    socket.on('userConnect', (email) => {
+        const normalizedEmail = String(email || '').trim().toLowerCase();
+        if (normalizedEmail) {
+            connectedUsers.set(normalizedEmail, socket.id);
+            console.log(`📍 Usuario autenticado: ${normalizedEmail} -> ${socket.id}`);
+        }
+    });
+    
+    socket.on('disconnect', () => {
+        connectedUsers.forEach((id, email) => {
+            if (id === socket.id) {
+                connectedUsers.delete(email);
+                console.log(`❌ Usuario desconectado: ${email}`);
+            }
+        });
+    });
+});
+
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
@@ -316,6 +351,15 @@ async function applyWeeklyAwards(rankings, weekKey, window) {
             { _id: user._id },
             { $set: { points: nextPoints, frameId: nextFrameId } }
         );
+
+        // Emitir evento WebSocket cuando se actualizan los puntos
+        io.emit('userPointsUpdated', {
+            email: user.email,
+            username: user.username,
+            points: nextPoints,
+            frameId: nextFrameId,
+            pointsGained: points,
+        });
     }
 
     const runDoc = {
@@ -846,6 +890,17 @@ app.post('/api/foros/:teamId', async (req, res) => {
 
         const result = await db.collection('foros').insertOne(doc);
         const created = await db.collection('foros').findOne({ _id: result.insertedId });
+        
+        // Emitir evento WebSocket a todos los usuarios conectados en este foro
+        io.emit('forumMessage', {
+            teamId,
+            message: {
+                ...created,
+                id: created._id.toString(),
+                _id: undefined,
+            }
+        });
+
         return res.status(201).json({ ...created, id: created._id.toString(), _id: undefined });
     } catch (err) {
         console.error('Error POST /api/foros/:teamId', err.message);
@@ -881,6 +936,13 @@ app.delete('/api/foros/:teamId/:messageId', async (req, res) => {
         }
 
         await db.collection('foros').deleteOne({ _id: new ObjectId(messageId) });
+        
+        // Emitir evento WebSocket de eliminación
+        io.emit('forumMessageDeleted', {
+            teamId,
+            messageId: messageId.toString(),
+        });
+
         return res.json({ message: 'Mensaje eliminado' });
     } catch (err) {
         console.error('Error DELETE /api/foros/:teamId/:messageId', err.message);
@@ -987,6 +1049,19 @@ app.post('/api/videos/:id/like', async (req, res) => {
                 read: false,
                 createdAt: new Date(),
             });
+
+            // Emitir evento WebSocket al propietario del video
+            const recipientSocketId = connectedUsers.get(recipientUserId);
+            if (recipientSocketId) {
+                io.to(recipientSocketId).emit('newNotification', {
+                    type: 'like',
+                    videoId: video._id.toString(),
+                    videoTitle,
+                    actorUserId: userIdRaw,
+                    createdAt: new Date(),
+                    message: `Alguien te dio like a tu video`
+                });
+            }
         }
 
         return res.json({
@@ -2086,7 +2161,7 @@ async function startServer() {
         }, 60 * 60 * 1000);
 
         console.log("🔥 Conectado a MongoDB Atlas");
-        app.listen(PORT, () => console.log(`🚀 Servidor en puerto ${PORT}`));
+        server.listen(PORT, () => console.log(`🚀 Servidor en puerto ${PORT}`));
     } catch (err) {
         console.error("❌ Error de conexión a MongoDB", err.message);
         process.exit(1);

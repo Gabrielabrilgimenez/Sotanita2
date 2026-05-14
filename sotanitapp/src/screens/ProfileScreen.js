@@ -3,6 +3,7 @@ import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text,
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
@@ -102,6 +103,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const scrollRef = useRef(null);
+  const socketRef = useRef(null);
 
   const selectFontSize = 26 * textScale;
   const selectItemFontSize = 22 * textScale;
@@ -448,6 +450,53 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       };
     }, [isLoggedIn, loadProfileVideos, refreshUser, user?.email])
   );
+
+  // WebSocket para actualizar puntos en tiempo real
+  useEffect(() => {
+    if (!isLoggedIn || !user?.email) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
+    }
+
+    const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
+
+    if (!socketRef.current) {
+      socketRef.current = io(apiBaseUrl, {
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+      });
+
+      // Escuchar actualizaciones de puntos
+      socketRef.current.on('userPointsUpdated', (data) => {
+        const userEmail = String(user?.email || '').trim().toLowerCase();
+        const dataEmail = String(data?.email || '').trim().toLowerCase();
+        
+        if (dataEmail === userEmail) {
+          console.log('🏆 Puntos actualizados:', data);
+          // Actualizar el usuario en el contexto de autenticación
+          if (refreshUser) {
+            refreshUser();
+          }
+        }
+      });
+
+      socketRef.current.on('error', (error) => {
+        console.error('❌ Error en WebSocket de perfil:', error);
+      });
+    }
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [isLoggedIn, user?.email, refreshUser]);
 
   const videosToShow = activeTab === 'uploaded' ? uploadedVideos : likedVideos;
 
