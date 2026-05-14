@@ -2,15 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
-import AppInput from '../components/AppInput';
-import AppButton from '../components/AppButton';
-import LoadingOverlay from '../components/LoadingOverlay';
-import { getCategories, uploadVideo } from '../api/backend';
-import { useAuth } from '../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import ScreenGradient from '../../components/ScreenGradient';
+import Header from '../../components/Header';
+import AppInput from '../../components/AppInput';
+import AppButton from '../../components/AppButton';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import { getCategories, uploadVideo } from '../../api/backend';
+import { useAuth } from '../../context/AuthContext';
 
 export default function UploadScreen({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();

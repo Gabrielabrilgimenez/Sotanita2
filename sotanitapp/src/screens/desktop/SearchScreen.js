@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
-import AppButton from '../components/AppButton';
-import AppInput from '../components/AppInput';
-import { getCategories } from '../api/backend';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import ScreenGradient from '../../components/ScreenGradient';
+import Header from '../../components/Header';
+import AppButton from '../../components/AppButton';
+import AppInput from '../../components/AppInput';
+import { getCategories } from '../../api/backend';
 
 export default function SearchScreen({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();

@@ -5,10 +5,7 @@ import { useAppTheme } from '../hooks/useAppTheme';
 import LoadingOverlay from '../components/LoadingOverlay';
 import AuthNavigator from './AuthNavigator';
 import TabNavigator from './TabNavigator';
-import SearchScreen from '../screens/SearchScreen';
-import MyVideosScreen from '../screens/MyVideosScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-import ShareScreen from '../screens/ShareScreen';
+import { getScreenComponent } from '../screens/index';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,16 +27,16 @@ export default function AppNavigator() {
       {isAuthenticated ? (
         <>
           <Stack.Screen name="MainTabs" component={TabNavigator} />
-          <Stack.Screen name="Share" component={ShareScreen} options={{ animationEnabled: false }} />
-          <Stack.Screen name="Search" component={SearchScreen} />
-          <Stack.Screen name="MyVideos" component={MyVideosScreen} />
-          <Stack.Screen name="Settings" component={SettingsScreen} />
-          <Stack.Screen name="ForoEquipo" component={require('../screens/ForoEquipo').default} />
+          <Stack.Screen name="Share" component={getScreenComponent('ShareScreen')} options={{ animationEnabled: false }} />
+          <Stack.Screen name="Search" component={getScreenComponent('SearchScreen')} />
+          <Stack.Screen name="MyVideos" component={getScreenComponent('MyVideosScreen')} />
+          <Stack.Screen name="Settings" component={getScreenComponent('SettingsScreen')} />
+          <Stack.Screen name="ForoEquipo" component={getScreenComponent('ForoEquipo')} />
         </>
       ) : (
         <>
           <Stack.Screen name="Auth" component={AuthNavigator} />
-          <Stack.Screen name="Share" component={ShareScreen} options={{ animationEnabled: false }} />
+          <Stack.Screen name="Share" component={getScreenComponent('ShareScreen')} options={{ animationEnabled: false }} />
         </>
       )}
     </Stack.Navigator>

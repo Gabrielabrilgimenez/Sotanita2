@@ -1,14 +1,14 @@
 import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { emailRegex } from '../utils/format';
-import AppButton from '../components/AppButton';
-import AppInput from '../components/AppInput';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import { emailRegex } from '../../utils/format';
+import AppButton from '../../components/AppButton';
+import AppInput from '../../components/AppInput';
+import ScreenGradient from '../../components/ScreenGradient';
+import Header from '../../components/Header';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 const isValidEmailOrUsername = (value) => {
   if (value.includes('@')) {

@@ -2,11 +2,11 @@ import { useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
-import { useSettings } from '../context/SettingsContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
+import { useSettings } from '../../context/SettingsContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import ScreenGradient from '../../components/ScreenGradient';
+import Header from '../../components/Header';
 
 export default function SettingsScreen({ navigation }) {
   const { highContrast, darkMode, fontSize, toggleHighContrast, toggleDarkMode, setFontSize } = useSettings();

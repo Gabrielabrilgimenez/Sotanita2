@@ -4,16 +4,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllVideos, getPositions, getTeamById, getTeamNames, getTeamsListWithEscudo, isUsernameAvailable } from '../api/backend';
-import ScreenGradient from '../components/ScreenGradient';
-import FifaCard from '../components/FifaCard';
-import AppButton from '../components/AppButton';
-import AppInput from '../components/AppInput';
-import VideoTile from '../components/VideoTile';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import { getAllVideos, getPositions, getTeamById, getTeamNames, getTeamsListWithEscudo, isUsernameAvailable } from '../../api/backend';
+import ScreenGradient from '../../components/ScreenGradient';
+import FifaCard from '../../components/FifaCard';
+import AppButton from '../../components/AppButton';
+import AppInput from '../../components/AppInput';
+import VideoTile from '../../components/VideoTile';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -114,10 +114,10 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const positionLabel = tempValue || 'Selecciona una posicion';
   const teamLabel = tempValue || 'Selecciona un equipo';
   const teamChangeIcon = highContrast
-    ? require('../../assets/perfil/teamChange_contrast.png')
+    ? require('../../../assets/perfil/teamChange_contrast.png')
     : darkMode
-      ? require('../../assets/perfil/teamChange_dark.png')
-      : require('../../assets/perfil/teamChange_light.png');
+      ? require('../../../assets/perfil/teamChange_dark.png')
+      : require('../../../assets/perfil/teamChange_light.png');
   const teamImageSource = useMemo(() => {
     const normalizedTeamImage = normalizeRemoteUri(teamEscudoUrl || user?.teamImageUrl);
     return normalizedTeamImage ? { uri: normalizedTeamImage } : null;

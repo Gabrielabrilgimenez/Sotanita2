@@ -3,11 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, Easing, FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, Alert } from 'react-native';
 import { io } from 'socket.io-client';
-import HomeScreen from '../screens/HomeScreen';
-import RankingScreen from '../screens/RankingScreen';
-import UploadScreen from '../screens/UploadScreen';
-import NotificationsScreen from '../screens/NotificationsScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import { getScreenComponent } from '../screens/index';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
@@ -415,12 +411,12 @@ export default function TabNavigator({ navigation }) {
       >
         <Tab.Screen
           name="Home"
-          component={HomeScreen}
+          component={getScreenComponent('HomeScreen')}
           listeners={{ tabPress: () => setShowNotifications(false) }}
         />
         <Tab.Screen
           name="Ranking"
-          component={RankingScreen}
+          component={getScreenComponent('RankingScreen')}
           listeners={{ tabPress: () => setShowNotifications(false) }}
         />
         <Tab.Screen
@@ -444,16 +440,19 @@ export default function TabNavigator({ navigation }) {
             },
           })}
         >
-          {(screenProps) => (
-            <ProfileScreen
-              {...screenProps}
-              hideProfileCard={showProfileTransition && isProfileAnimating}
-            />
-          )}
+          {(screenProps) => {
+            const ProfileScreen = getScreenComponent('ProfileScreen');
+            return (
+              <ProfileScreen
+                {...screenProps}
+                hideProfileCard={showProfileTransition && isProfileAnimating}
+              />
+            );
+          }}
         </Tab.Screen>
         <Tab.Screen
           name="Notifications"
-          component={NotificationsScreen}
+          component={getScreenComponent('NotificationsScreen')}
           listeners={{
             tabPress: (e) => {
               e.preventDefault();
@@ -463,7 +462,7 @@ export default function TabNavigator({ navigation }) {
         />
         <Tab.Screen
           name="Upload"
-          component={UploadScreen}
+          component={getScreenComponent('UploadScreen')}
           listeners={{ tabPress: () => setShowNotifications(false) }}
         />
       </Tab.Navigator>

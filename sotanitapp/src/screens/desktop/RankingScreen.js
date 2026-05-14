@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import StrokeText from '../components/StrokeText';
+import StrokeText from '../../components/StrokeText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import ScreenGradient from '../components/ScreenGradient';
-import FifaCard from '../components/FifaCard';
-import { formatLikes } from '../utils/format';
-import { getCategories, getWeeklyRankings } from '../api/backend';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import ScreenGradient from '../../components/ScreenGradient';
+import FifaCard from '../../components/FifaCard';
+import { formatLikes } from '../../utils/format';
+import { getCategories, getWeeklyRankings } from '../../api/backend';
 
 export default function RankingScreen({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();

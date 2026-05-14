@@ -1,12 +1,12 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import ScreenGradient from '../components/ScreenGradient';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import ScreenGradient from '../../components/ScreenGradient';
 
-const appLogo = require('../../assets/LOGO.png');
-const loginButtonImage = require('../../assets/init/login.png');
-const registerButtonImage = require('../../assets/init/register.png');
-const guestButtonImage = require('../../assets/init/guest.png');
+const appLogo = require('../../../assets/LOGO.png');
+const loginButtonImage = require('../../../assets/init/login.png');
+const registerButtonImage = require('../../../assets/init/register.png');
+const guestButtonImage = require('../../../assets/init/guest.png');
 
 export default function WelcomeScreen({ navigation }) {
   const { enterAsGuest } = useAuth();

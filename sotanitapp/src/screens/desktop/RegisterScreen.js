@@ -2,16 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Dimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getPositions, getTeamsListWithEscudo, isUsernameAvailable } from '../api/backend';
-import { emailRegex } from '../utils/format';
-import AppButton from '../components/AppButton';
-import AppInput from '../components/AppInput';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import { getPositions, getTeamsListWithEscudo, isUsernameAvailable } from '../../api/backend';
+import { emailRegex } from '../../utils/format';
+import AppButton from '../../components/AppButton';
+import AppInput from '../../components/AppInput';
+import ScreenGradient from '../../components/ScreenGradient';
+import Header from '../../components/Header';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 

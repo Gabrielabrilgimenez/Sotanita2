@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useRoute } from '@react-navigation/native';
-import ScreenGradient from '../components/ScreenGradient';
-import { useAppTheme } from '../hooks/useAppTheme';
-import { useAuth } from '../context/AuthContext';
+import ScreenGradient from '../../components/ScreenGradient';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import { useAuth } from '../../context/AuthContext';
 
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
