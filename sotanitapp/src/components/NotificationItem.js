@@ -4,29 +4,34 @@ import { useAppTheme } from '../hooks/useAppTheme';
 
 export default function NotificationItem({ item, onOpenVideo }) {
   const { colors, spacing, typography, textScale } = useAppTheme();
+  const notification = item ?? {};
+
+  if (!notification.user && !notification.actorUsername && !notification.action && !notification.videoTitle) {
+    return null;
+  }
 
   return (
     <View style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: spacing.sm }]}> 
       <FifaCard
-        username={item.user || item.actorUsername}
-        team={item.actorTeamName || 'Sin equipo'}
+        username={notification.user || notification.actorUsername}
+        team={notification.actorTeamName || 'Sin equipo'}
         position="---"
-        backgroundUrl={item.actorTeamImageUrl}
-        frameUrl={item.actorFrameImageId}
-        frameId={item.actorFrameId}
-        photoUrl={item.actorProfileImageUrl}
+        backgroundUrl={notification.actorTeamImageUrl}
+        frameUrl={notification.actorFrameImageId}
+        frameId={notification.actorFrameId}
+        photoUrl={notification.actorProfileImageUrl}
         size="small"
         disableShadow
       />
       <View style={styles.content}>
         <Text style={{ color: colors.text, fontSize: (typography.sizes.sm * 0.95) * textScale, lineHeight: 18 }}>
-          <Text style={{ fontWeight: typography.weights.bold }}>{item.user || item.actorUsername}</Text>{' '}
-          <Text style={{ color: colors.textMuted }}>{item.action}</Text>
-          {item.videoTitle ? (
+          <Text style={{ fontWeight: typography.weights.bold }}>{notification.user || notification.actorUsername}</Text>{' '}
+          <Text style={{ color: colors.textMuted }}>{notification.action}</Text>
+          {notification.videoTitle ? (
             <Text
               onPress={() => {
-                if (item.videoId && onOpenVideo) {
-                  onOpenVideo(item.videoId);
+                if (notification.videoId && onOpenVideo) {
+                  onOpenVideo(notification.videoId);
                 }
               }}
               style={{
@@ -35,11 +40,11 @@ export default function NotificationItem({ item, onOpenVideo }) {
                 fontWeight: typography.weights.semibold,
               }}
             >
-              {' '}{item.videoTitle}
+              {' '}{notification.videoTitle}
             </Text>
           ) : null}
         </Text>
-        <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>{item.time}</Text>
+        <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, marginTop: 4 }}>{notification.time}</Text>
       </View>
     </View>
   );

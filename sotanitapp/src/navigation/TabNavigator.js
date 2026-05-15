@@ -70,6 +70,7 @@ export default function TabNavigator({ navigation }) {
     profileImageUrl: isLoggedIn ? user?.profileImageUrl : null,
     teamImageUrl: isLoggedIn ? user?.teamImageUrl : null,
     frameImageId: isLoggedIn ? user?.frameImageId : null,
+    frameId: isLoggedIn ? user?.frameId : null,
   };
 
   const startAnimationFromProfileTab = (navigation) => {
