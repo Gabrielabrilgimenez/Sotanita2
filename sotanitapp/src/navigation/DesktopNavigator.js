@@ -364,6 +364,7 @@ function DesktopNavBar({ navigation }) {
                   backgroundColor: colors.surface,
                   borderColor: colors.border,
                   opacity: notificationsAnim,
+                  height: Math.min(height * 0.78, 700),
                   transform: [
                     {
                       translateY: notificationsAnim.interpolate({
@@ -411,6 +412,7 @@ function DesktopNavBar({ navigation }) {
                     />
                   )}
                   keyExtractor={(item) => String(item.id)}
+                  style={styles.notificationsContent}
                   contentContainerStyle={{ paddingHorizontal: spacing.md }}
                   scrollEventThrottle={16}
                 />
@@ -574,14 +576,13 @@ const styles = StyleSheet.create({
   },
   notificationsOverlay: {
     flex: 1,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: DESKTOP_NAV_HEIGHT + 16,
+    paddingTop: 0,
   },
   notificationsPanel: {
     width: '90%',
     maxWidth: 500,
-    maxHeight: 500,
     borderRadius: 12,
     borderWidth: 1,
     overflow: 'hidden',

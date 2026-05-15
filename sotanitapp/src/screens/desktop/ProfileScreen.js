@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Dimensions } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -14,6 +14,7 @@ import AppButton from '../../components/AppButton';
 import AppInput from '../../components/AppInput';
 import VideoTile from '../../components/VideoTile';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import ForoEquipo from './ForoEquipo';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -78,6 +79,7 @@ function getRankProgress(points = 0) {
 export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const { user, isLoggedIn, guestMode, logout, updateUser, refreshUser } = useAuth();
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
 
   const [activeTab, setActiveTab] = useState('uploaded');
   const [editingField, setEditingField] = useState(null);
@@ -501,209 +503,205 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   }, [isLoggedIn, user?.email, refreshUser]);
 
   const videosToShow = activeTab === 'uploaded' ? uploadedVideos : likedVideos;
+  const forumTeamId = isLoggedIn ? user?.teamId : null;
+  const desktopMainSectionWidth = (windowWidth * 2) / 3;
+  const desktopSelectModalWidth = Math.max(320, Math.round(desktopMainSectionWidth * 0.9));
+  const desktopTeamPickerItemWidth = Math.max(150, Math.min(240, Math.round((desktopSelectModalWidth - 48) / 3)));
+  const desktopTeamPickerItemHeight = Math.round(desktopTeamPickerItemWidth * 1.18);
 
   return (
     <ScreenGradient>
-      <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 120 }}>
-        <View style={[styles.topActions, { padding: spacing.md }]}> 
-          <Pressable onPress={() => navigation.navigate('Settings')} style={[styles.iconBtn, { backgroundColor: colors.surface }]}> 
-            <Ionicons name="settings" size={20} color={colors.primary} />
-          </Pressable>
-        </View>
-
-        <View style={{ alignItems: 'center', minHeight: 246 }}>
-          {!hideProfileCard ? (
-            <View style={styles.profileCardWrap}>
-              <FifaCard
-                username={profile.username}
-                team={profile.team}
-                position={profile.position}
-                rating={requireLogin ? 0 : 88}
-                photoUrl={profile.profileImageUrl}
-                backgroundUrl={profile.teamImageUrl}
-                frameUrl={profile.frameImageId}
-                frameId={profile.frameId}
-                size="xlarge"
-                disableShadow
-                onPress={handleCardPress}
-              />
-              {isLoggedIn ? (
-                <Pressable
-                  style={[styles.editPhotoButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                  onPress={() => setShowPhotoModal(true)}
-                  disabled={photoLoading}
-                >
-                  <Ionicons name="create-outline" size={18} color={colors.primary} />
-                </Pressable>
+      <View style={styles.desktopLayout}>
+        <View style={styles.desktopLeftPane}>
+          <ScrollView ref={scrollRef} contentContainerStyle={[styles.desktopScrollContent, { paddingBottom: spacing.xl * 2 }]}> 
+            <View style={styles.desktopScrollInner}>
+              <View style={[styles.desktopHeroRow, { gap: spacing.lg }]}> 
+              {!hideProfileCard ? (
+                <View style={styles.profileCardWrap}>
+                  <FifaCard
+                    username={profile.username}
+                    team={profile.team}
+                    position={profile.position}
+                    rating={requireLogin ? 0 : 88}
+                    photoUrl={profile.profileImageUrl}
+                    backgroundUrl={profile.teamImageUrl}
+                    frameUrl={profile.frameImageId}
+                    frameId={profile.frameId}
+                    size="xlarge"
+                    disableShadow
+                    onPress={handleCardPress}
+                  />
+                  {isLoggedIn ? (
+                    <Pressable
+                      style={[styles.editPhotoButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                      onPress={() => setShowPhotoModal(true)}
+                      disabled={photoLoading}
+                    >
+                      <Ionicons name="create-outline" size={18} color={colors.primary} />
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
-            </View>
-          ) : null}
-        </View>
 
-        {requireLogin ? (
-          <View style={{ alignItems: 'center', marginTop: spacing.xl }}>
-            <Text style={{ color: colors.textMuted, marginBottom: spacing.md }}>Inicia sesion para ver tu perfil completo</Text>
-            <AppButton title="Iniciar sesion" onPress={logout} style={{ width: 200 }} />
-          </View>
-        ) : (
-          <>
-            <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.xl, gap: spacing.sm }}>
-              {[
-                { key: 'username', label: 'Usuario' },
-                { key: 'position', label: 'Posicion' },
-              ].map((field) => (
-                <View key={field.key} style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-                  <View>
-                    <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>{field.label}</Text>
-                    <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
-                      {profile[field.key]}
+              <View style={[styles.desktopEditColumn, { gap: spacing.sm }]}> 
+                {[
+                  { key: 'username', label: 'Usuario' },
+                  { key: 'position', label: 'Posicion' },
+                ].map((field) => (
+                  <View key={field.key} style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+                    <View>
+                      <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>{field.label}</Text>
+                      <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
+                        {profile[field.key]}
+                      </Text>
+                    </View>
+                    <Pressable onPress={() => openEdit(field.key)}>
+                      <Ionicons name="create-outline" size={20} color={colors.primary} />
+                    </Pressable>
+                  </View>
+                ))}
+
+                {!requireLogin ? (
+                  <Pressable
+                    onPress={logout}
+                    style={({ pressed }) => [
+                      styles.desktopLogoutButton,
+                      {
+                        backgroundColor: `${colors.danger}22`,
+                        borderColor: `${colors.danger}77`,
+                        opacity: pressed ? 0.92 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+                    <Text style={{ color: colors.danger, fontWeight: typography.weights.semibold }}>Cerrar sesion</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              </View>
+
+            {requireLogin ? (
+              <View style={{ alignItems: 'flex-start', marginTop: spacing.xl }}>
+                <Text style={{ color: colors.textMuted, marginBottom: spacing.md }}>Inicia sesion para ver tu perfil completo</Text>
+                <AppButton title="Iniciar sesion" onPress={logout} style={{ width: 200 }} />
+              </View>
+            ) : (
+              <>
+                <View style={[styles.desktopPointsRow, { gap: spacing.md, marginTop: spacing.xl }]}> 
+                  <View style={[styles.pointsCard, { flex: 3, backgroundColor: colors.surface, borderColor: colors.border }]}> 
+                    <View style={styles.pointsHeader}>
+                      <View>
+                        <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Puntos</Text>
+                        <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.xl * textScale }}>
+                          {getRankProgress(profile.points).points}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Rango</Text>
+                        <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
+                          {getRankProgress(profile.points).currentTier?.label || 'Pendiente'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.progressTrack, { backgroundColor: `${colors.border}80` }]}> 
+                      <View style={[styles.progressFill, { width: `${Math.round(getRankProgress(profile.points).progress * 100)}%`, backgroundColor: colors.primary }]} />
+                    </View>
+
+                    <Text style={{ color: colors.textMuted, marginTop: spacing.sm, fontSize: typography.sizes.sm * textScale }}>
+                      {getRankProgress(profile.points).nextTier?.label
+                        ? `Te faltan ${getRankProgress(profile.points).pointsToNext} puntos para desbloquear ${getRankProgress(profile.points).nextTier.label}.`
+                        : 'Has desbloqueado el rango más alto preparado. El siguiente marco queda pendiente de definir.'}
                     </Text>
                   </View>
-                  <Pressable onPress={() => openEdit(field.key)}>
-                    <Ionicons name="create-outline" size={20} color={colors.primary} />
+
+                  <Pressable
+                    onPress={handleChangeTeamPress}
+                    style={({ pressed }) => [
+                      styles.desktopTeamChangeButton,
+                      {
+                        flex: 1,
+                        backgroundColor: darkMode ? colors.surfaceElevated : colors.surface,
+                        borderColor: highContrast ? colors.primary : colors.border,
+                        opacity: pressed ? 0.92 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.desktopTeamChangeIconWrap}>
+                      <Image source={teamChangeIcon} style={styles.teamChangeIcon} resizeMode="contain" />
+                    </View>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontFamily: typography.families.nougat,
+                        fontSize: (typography.sizes.md + 8) * textScale,
+                        textAlign: 'center',
+                      }}
+                      numberOfLines={2}
+                    >
+                      Cambiar de equipo
+                    </Text>
                   </Pressable>
                 </View>
-              ))}
+
+                <View style={[styles.tabs, { borderBottomColor: colors.border, marginTop: spacing.xl }]}> 
+                  <Pressable style={styles.tabBtn} onPress={() => setActiveTab('uploaded')}>
+                    <Text style={{ color: activeTab === 'uploaded' ? colors.primary : colors.textMuted, fontWeight: typography.weights.semibold }}>
+                      Tus videos
+                    </Text>
+                    {activeTab === 'uploaded' ? <View style={[styles.tabLine, { backgroundColor: colors.primary }]} /> : null}
+                  </Pressable>
+                  <Pressable style={styles.tabBtn} onPress={() => setActiveTab('liked')}>
+                    <Text style={{ color: activeTab === 'liked' ? colors.primary : colors.textMuted, fontWeight: typography.weights.semibold }}>
+                      Videos que te gustan
+                    </Text>
+                    {activeTab === 'liked' ? <View style={[styles.tabLine, { backgroundColor: colors.primary }]} /> : null}
+                  </Pressable>
+                </View>
+
+                <View style={[styles.gridWrap, { paddingHorizontal: spacing.md }]}> 
+                  {videosToShow.map((video) => (
+                    <VideoTile
+                      key={video.id}
+                      item={video}
+                      variant={activeTab === 'uploaded' ? 'uploaded' : 'liked'}
+                      onPress={() => {
+                        navigation.navigate('Home', {
+                          videoId: video.id,
+                        });
+                      }}
+                    />
+                  ))}
+                  {!loadingVideos && videosToShow.length === 0 ? (
+                    <View style={[styles.emptyVideosWrap, { borderColor: colors.border, backgroundColor: colors.surface }]}> 
+                      <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold }}>
+                        {activeTab === 'uploaded' ? 'Aun no has subido videos' : 'Aun no has dado like a ningun video'}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </>
+            )}
             </View>
+          </ScrollView>
+        </View>
 
-            <View style={[styles.pointsCard, { marginHorizontal: spacing.xl, marginTop: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border }]}> 
-              <View style={styles.pointsHeader}>
-                <View>
-                  <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Puntos</Text>
-                  <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.xl * textScale }}>
-                    {getRankProgress(profile.points).points}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Rango</Text>
-                  <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
-                    {getRankProgress(profile.points).currentTier?.label || 'Pendiente'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={[styles.progressTrack, { backgroundColor: `${colors.border}80` }]}> 
-                <View style={[styles.progressFill, { width: `${Math.round(getRankProgress(profile.points).progress * 100)}%`, backgroundColor: colors.primary }]} />
-              </View>
-
-              <Text style={{ color: colors.textMuted, marginTop: spacing.sm, fontSize: typography.sizes.sm * textScale }}>
-                {getRankProgress(profile.points).nextTier?.label
-                  ? `Te faltan ${getRankProgress(profile.points).pointsToNext} puntos para desbloquear ${getRankProgress(profile.points).nextTier.label}.`
-                  : 'Has desbloqueado el rango más alto preparado. El siguiente marco queda pendiente de definir.'}
+        <View style={[styles.desktopForumPane, { borderLeftColor: colors.border }]}> 
+          {forumTeamId ? (
+            <ForoEquipo route={{ params: { teamId: forumTeamId } }} navigation={navigation} />
+          ) : (
+            <View style={[styles.desktopForumEmpty, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+              <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold, textAlign: 'center' }}>
+                Asigna un equipo para ver el foro en esta columna.
               </Text>
             </View>
-
-            <View style={[styles.teamActionsWrap, { paddingHorizontal: spacing.xl, marginTop: spacing.md }]}> 
-              <Pressable
-                onPress={handleViewTeamPress}
-                style={({ pressed }) => [
-                  styles.squareAction,
-                  {
-                    backgroundColor: darkMode ? colors.surfaceElevated : colors.surface,
-                    borderColor: highContrast ? colors.primary : colors.border,
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.squareActionIconWrap}>
-                  {teamImageSource ? (
-                    <Image source={teamImageSource} style={styles.teamCrest} resizeMode="contain" />
-                  ) : (
-                    <Ionicons name="shield-outline" size={40} color={colors.primary} />
-                  )}
-                </View>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontFamily: typography.families.nougat,
-                    fontSize: (typography.sizes.md + 8 )* textScale,
-                    textAlign: 'center',
-                  }}
-                  numberOfLines={2}
-                >
-                  ACCEDE A LA FAN ZONE
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={handleChangeTeamPress}
-                style={({ pressed }) => [
-                  styles.squareAction,
-                  {
-                    backgroundColor: darkMode ? colors.surfaceElevated : colors.surface,
-                    borderColor: highContrast ? colors.primary : colors.border,
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.squareActionIconWrap}>
-                  <Image source={teamChangeIcon} style={styles.teamChangeIcon} resizeMode="contain" />
-                </View>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontFamily: typography.families.nougat,
-                    fontSize: (typography.sizes.md + 8)* textScale,
-                    textAlign: 'center',
-                  }}
-                  numberOfLines={2}
-                >
-                  Cambiar de equipo
-                </Text>
-              </Pressable>
-            </View>
-
-            <Pressable
-              onPress={logout}
-              style={[styles.logoutButton, { backgroundColor: `${colors.danger}22`, borderColor: `${colors.danger}77`, marginTop: spacing.lg }]}
-            >
-              <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-              <Text style={{ color: colors.danger, fontWeight: typography.weights.semibold }}>Cerrar sesion</Text>
-            </Pressable>
-
-            <View style={[styles.tabs, { borderBottomColor: colors.border, marginTop: spacing.xl }]}> 
-              <Pressable style={styles.tabBtn} onPress={() => setActiveTab('uploaded')}>
-                <Text style={{ color: activeTab === 'uploaded' ? colors.primary : colors.textMuted, fontWeight: typography.weights.semibold }}>
-                  Tus videos
-                </Text>
-                {activeTab === 'uploaded' ? <View style={[styles.tabLine, { backgroundColor: colors.primary }]} /> : null}
-              </Pressable>
-              <Pressable style={styles.tabBtn} onPress={() => setActiveTab('liked')}>
-                <Text style={{ color: activeTab === 'liked' ? colors.primary : colors.textMuted, fontWeight: typography.weights.semibold }}>
-                  Videos que te gustan
-                </Text>
-                {activeTab === 'liked' ? <View style={[styles.tabLine, { backgroundColor: colors.primary }]} /> : null}
-              </Pressable>
-            </View>
-
-            <View style={[styles.gridWrap, { paddingHorizontal: spacing.md }]}> 
-              {videosToShow.map((video) => (
-                <VideoTile
-                  key={video.id}
-                  item={video}
-                  variant={activeTab === 'uploaded' ? 'uploaded' : 'liked'}
-                  onPress={() => {
-                    navigation.navigate('Home', {
-                      videoId: video.id,
-                    });
-                  }}
-                />
-              ))}
-              {!loadingVideos && videosToShow.length === 0 ? (
-                <View style={[styles.emptyVideosWrap, { borderColor: colors.border, backgroundColor: colors.surface }]}> 
-                  <Text style={{ color: colors.textMuted, fontWeight: typography.weights.semibold }}>
-                    {activeTab === 'uploaded' ? 'Aun no has subido videos' : 'Aun no has dado like a ningun video'}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </>
-        )}
-      </ScrollView>
+          )}
+        </View>
+      </View>
 
       <Modal visible={Boolean(editingField)} transparent animationType="fade" onRequestClose={() => setEditingField(null)}>
         <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => setEditingField(null)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface }]} onPress={() => {}}>
+          <Pressable style={[styles.selectModalCard, { width: desktopSelectModalWidth, backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
             <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, marginBottom: spacing.md }}>
               Editar {editingField === 'username' ? 'usuario' : editingField === 'team' ? 'equipo' : 'posicion'}
             </Text>
@@ -808,7 +806,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
           onPress={() => setShowPositionPicker(false)}
         >
-          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+          <View style={[styles.selectModalCard, { width: desktopSelectModalWidth, backgroundColor: colors.surface, borderColor: colors.border }]}> 
             <Pressable
               onPress={() => {
                 setTempValue('');
@@ -862,7 +860,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
           style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
           onPress={() => setShowTeamPicker(false)}
         >
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 0 }}>
+          <View style={[styles.selectModalCard, { width: desktopSelectModalWidth, backgroundColor: colors.surface, borderColor: colors.border }]}> 
             <FlatList
               style={{ width: '100%' }}
               data={fullTeamList}
@@ -873,8 +871,8 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
                     setShowTeamPicker(false);
                   }}
                   style={{
-                    width: Dimensions.get('window').width / 2,
-                    height: Dimensions.get('window').height / 3,
+                    width: desktopTeamPickerItemWidth,
+                    height: desktopTeamPickerItemHeight,
                     padding: 8,
                   }}
                 >
@@ -930,7 +928,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               )}
               keyExtractor={(item, index) => item.id || index.toString()}
               horizontal
-              contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 24 }}
+              contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 12 }}
               scrollEventThrottle={16}
               showsHorizontalScrollIndicator={true}
             />
@@ -993,8 +991,75 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 }
 
 const styles = StyleSheet.create({
-  topActions: {
-    alignItems: 'flex-end',
+  desktopLayout: {
+    flex: 1,
+    flexDirection: 'row',
+    minHeight: '100%',
+  },
+  desktopLeftPane: {
+    flex: 2,
+    position: 'relative',
+  },
+  desktopScrollContent: {
+    paddingTop: 72,
+    paddingHorizontal: 0,
+  },
+  desktopScrollInner: {
+    width: '90%',
+    alignSelf: 'center',
+  },
+  desktopLogoutButton: {
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 50,
+    width: '50%',
+    marginTop: 8,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  desktopHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  desktopEditColumn: {
+    flex: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  desktopPointsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  desktopTeamChangeButton: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    minHeight: 180,
+  },
+  desktopTeamChangeIconWrap: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  desktopForumPane: {
+    flex: 1,
+    borderLeftWidth: 1,
+  },
+  desktopForumEmpty: {
+    flex: 1,
+    margin: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
   iconBtn: {
     width: 42,
@@ -1011,6 +1076,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    width: '50%',
   },
   logoutButton: {
     marginHorizontal: 24,
@@ -1111,6 +1177,11 @@ const styles = StyleSheet.create({
     minHeight: 52,
     justifyContent: 'center',
   },
+  selectModalCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+  },
   selectButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1121,6 +1192,7 @@ const styles = StyleSheet.create({
   },
   selectOverlay: {
     flex: 1,
+    alignItems: 'center',
     justifyContent: 'center',
     padding: 18,
   },

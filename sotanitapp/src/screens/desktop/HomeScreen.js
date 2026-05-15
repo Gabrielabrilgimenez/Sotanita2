@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from '../../utils/media';
 import { useFocusEffect } from '@react-navigation/native';
@@ -7,6 +7,8 @@ import { getAllVideos, getCategories } from '../../api/backend';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import ScreenGradient from '../../components/ScreenGradient';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import MyVideosScreen from './MyVideosScreen';
+import FifaCard from '../../components/FifaCard';
 
 const qrCodeImage = require('../../../assets/qrcode.png');
 
@@ -33,13 +35,34 @@ function getPreviewUrl(video) {
   return video?.url || '';
 }
 
-function VideoPreviewCard({ video, colors, typography, textScale }) {
+function VideoPreviewCard({ video, colors, typography, textScale, onPress }) {
   const previewUrl = getPreviewUrl(video);
   const imagePreview = isImageMedia(video);
+  const [hovered, setHovered] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.timing(scaleAnim, {
+      toValue: hovered ? 0.95 : 1,
+      duration: 120,
+      easing: hovered ? undefined : undefined,
+      useNativeDriver: true,
+    }).start();
+  }, [hovered, scaleAnim]);
 
   return (
-    <View style={[styles.videoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-      <View style={styles.mediaFrame}>
+    <Pressable
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={({ pressed }) => [
+        styles.videoCardPressable,
+        Platform.OS === 'web' ? styles.webPointer : null,
+        { opacity: pressed ? 0.98 : 1 },
+      ]}
+    >
+      <Animated.View style={[styles.videoCard, { backgroundColor: colors.surface, borderColor: colors.border, transform: [{ scale: scaleAnim }] }]}> 
+        <View style={styles.mediaFrame}>
         {imagePreview ? (
           <Image source={{ uri: previewUrl }} style={styles.media} resizeMode="cover" />
         ) : (
@@ -57,44 +80,69 @@ function VideoPreviewCard({ video, colors, typography, textScale }) {
             </View>
           </>
         )}
-      </View>
+        {video?.uploaderCard ? (
+          <View style={styles.previewUploaderWrap}>
+            <FifaCard
+              username={video.uploaderCard.username || (video.id_usuario ? String(video.id_usuario).split('@')[0] : 'usuario')}
+              position={video.uploaderCard.position}
+              team={video.uploaderCard.teamName}
+              backgroundUrl={video.uploaderCard.teamImageUrl}
+              frameUrl={video.uploaderCard.frameImageId}
+              frameId={video.uploaderCard.frameId}
+              photoUrl={video.uploaderCard.profileImageUrl}
+              size="small"
+              disableShadow
+            />
+          </View>
+        ) : null}
+        </View>
 
-      <View style={styles.videoMeta}>
-        <Text
-          style={{
-            color: colors.text,
-            fontSize: typography.sizes.sm * textScale,
-            fontWeight: typography.weights.bold,
-          }}
-          numberOfLines={1}
-        >
-          {video?.title || 'Video'}
-        </Text>
-        <Text
-          style={{
-            color: colors.textMuted,
-            fontSize: typography.sizes.xs * textScale,
-            marginTop: 4,
-          }}
-          numberOfLines={1}
-        >
-          {video?.category || 'Sin categoria'}
-        </Text>
-      </View>
-    </View>
+        <View style={styles.videoMeta}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: typography.sizes.sm * textScale,
+              fontWeight: typography.weights.bold,
+            }}
+            numberOfLines={1}
+          >
+            {video?.title || 'Video'}
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: typography.sizes.xs * textScale,
+              marginTop: 4,
+            }}
+            numberOfLines={1}
+          >
+            {video?.category || 'Sin categoria'}
+          </Text>
+        </View>
+      </Animated.View>
+    </Pressable>
   );
 }
 
-export default function HomeScreen() {
+export default function HomeScreen({ navigation, route }) {
   const { colors, spacing, typography, textScale } = useAppTheme();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const categorySelectorRef = useRef(null);
   const [videos, setVideos] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [categoryPickerAnchor, setCategoryPickerAnchor] = useState({ x: 20, y: 110, width: 300, height: 50 });
+  const [showVideoPopup, setShowVideoPopup] = useState(false);
+  const [popupVideoId, setPopupVideoId] = useState(null);
+  const consumedRouteVideoRef = useRef(null);
+  const popupWheelLockedRef = useRef(false);
+  const popupWheelIdleTimerRef = useRef(null);
+  const popupTransitionAnim = useRef(new Animated.Value(1)).current;
+  const [popupTransitionDir, setPopupTransitionDir] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const routeVideoId = route?.params?.videoId ? String(route.params.videoId) : null;
 
   const loadFeedData = useCallback(async () => {
     try {
@@ -155,6 +203,102 @@ export default function HomeScreen() {
   );
 
   const selectedCategoryLabel = selectedCategory || 'Últimas Subidas';
+  const popupRoute = useMemo(() => ({ params: { videoId: popupVideoId, sourceTab: 'ranking' } }), [popupVideoId]);
+  const popupNavigation = useMemo(() => ({
+    goBack: () => setShowVideoPopup(false),
+    navigate: (...args) => {
+      setShowVideoPopup(false);
+      navigation.navigate(...args);
+    },
+  }), [navigation]);
+
+  const openVideoPopup = useCallback((videoId) => {
+    if (!videoId) return;
+    setPopupVideoId(String(videoId));
+    setShowVideoPopup(true);
+  }, []);
+
+  useEffect(() => {
+    if (!routeVideoId) {
+      consumedRouteVideoRef.current = null;
+      return;
+    }
+
+    setSelectedCategory('');
+  }, [routeVideoId]);
+
+  useEffect(() => {
+    if (!routeVideoId || !sortedVideos.length) return;
+    if (consumedRouteVideoRef.current === routeVideoId) return;
+
+    const exists = sortedVideos.some((video) => String(video?.id) === routeVideoId);
+    if (!exists) return;
+
+    consumedRouteVideoRef.current = routeVideoId;
+    setPopupVideoId(routeVideoId);
+    setShowVideoPopup(true);
+    navigation.setParams({ videoId: undefined, carouselIndex: undefined, mediaIndex: undefined });
+  }, [navigation, routeVideoId, sortedVideos]);
+
+  const movePopupVideo = useCallback((step) => {
+    if (!sortedVideos.length) return;
+    const currentIndexRaw = sortedVideos.findIndex((video) => String(video?.id) === String(popupVideoId));
+    const currentIndex = currentIndexRaw >= 0 ? currentIndexRaw : 0;
+    const nextIndex = Math.min(sortedVideos.length - 1, Math.max(0, currentIndex + step));
+    if (nextIndex === currentIndex) return;
+    const nextVideoId = sortedVideos[nextIndex]?.id;
+    if (nextVideoId == null) return;
+    setPopupTransitionDir(step > 0 ? 1 : -1);
+    setPopupVideoId(String(nextVideoId));
+  }, [popupVideoId, sortedVideos]);
+
+  const handlePopupWheel = useCallback((event) => {
+    if (!showVideoPopup) return;
+    const deltaY = Number(event?.nativeEvent?.deltaY || 0);
+    if (Math.abs(deltaY) < 10) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
+    if (popupWheelLockedRef.current) {
+      if (popupWheelIdleTimerRef.current) {
+        clearTimeout(popupWheelIdleTimerRef.current);
+      }
+      popupWheelIdleTimerRef.current = setTimeout(() => {
+        popupWheelLockedRef.current = false;
+      }, 180);
+      return;
+    }
+
+    popupWheelLockedRef.current = true;
+    if (popupWheelIdleTimerRef.current) {
+      clearTimeout(popupWheelIdleTimerRef.current);
+    }
+    popupWheelIdleTimerRef.current = setTimeout(() => {
+      popupWheelLockedRef.current = false;
+    }, 180);
+
+    movePopupVideo(deltaY > 0 ? 1 : -1);
+  }, [movePopupVideo, showVideoPopup]);
+
+  useEffect(() => {
+    if (!showVideoPopup) {
+      popupWheelLockedRef.current = false;
+      if (popupWheelIdleTimerRef.current) {
+        clearTimeout(popupWheelIdleTimerRef.current);
+        popupWheelIdleTimerRef.current = null;
+      }
+    }
+  }, [showVideoPopup]);
+
+  useEffect(() => {
+    if (!showVideoPopup || !popupVideoId) return;
+    popupTransitionAnim.setValue(0);
+    Animated.timing(popupTransitionAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [popupTransitionAnim, popupTransitionDir, popupVideoId, showVideoPopup]);
 
   const openCategoryPicker = useCallback(() => {
     const node = categorySelectorRef.current;
@@ -239,6 +383,7 @@ export default function HomeScreen() {
                     colors={colors}
                     typography={typography}
                     textScale={textScale}
+                    onPress={() => openVideoPopup(video.id)}
                   />
                 ))}
               </View>
@@ -251,6 +396,7 @@ export default function HomeScreen() {
                     colors={colors}
                     typography={typography}
                     textScale={textScale}
+                    onPress={() => openVideoPopup(video.id)}
                   />
                 ))}
               </View>
@@ -265,6 +411,50 @@ export default function HomeScreen() {
             ) : null}
           </ScrollView>
         </View>
+
+        <Modal transparent animationType="fade" visible={showVideoPopup} onRequestClose={() => setShowVideoPopup(false)}>
+          <Pressable
+            style={[styles.videoPopupOverlay, { backgroundColor: colors.overlay }]}
+            onPress={() => setShowVideoPopup(false)}
+          >
+            <Pressable
+              onPress={() => {}}
+              onWheel={handlePopupWheel}
+              style={[
+                styles.videoPopupCard,
+                {
+                  width: windowWidth * 0.67,
+                  height: windowHeight * 0.95,
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              {popupVideoId ? (
+                <Animated.View
+                  style={{
+                    flex: 1,
+                    opacity: popupTransitionAnim,
+                    transform: [
+                      {
+                        translateY: popupTransitionAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [popupTransitionDir > 0 ? 26 : -26, 0],
+                        }),
+                      },
+                    ],
+                  }}
+                >
+                  <MyVideosScreen
+                    navigation={popupNavigation}
+                    route={popupRoute}
+                    embedded
+                  />
+                </Animated.View>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <Modal
           visible={showCategoryPicker}
@@ -375,11 +565,23 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
   },
+  videoCardPressable: {
+    borderRadius: 14,
+  },
+  webPointer: {
+    cursor: 'pointer',
+  },
   mediaFrame: {
     width: '100%',
     aspectRatio: 9 / 16,
     backgroundColor: '#000000',
     position: 'relative',
+  },
+  previewUploaderWrap: {
+    position: 'absolute',
+    left: 12,
+    bottom: 12,
+    zIndex: 5,
   },
   media: {
     width: '100%',
@@ -404,6 +606,16 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
+  },
+  videoPopupOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPopupCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   modalCard: {
     position: 'absolute',

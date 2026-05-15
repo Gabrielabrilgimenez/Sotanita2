@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -16,16 +16,22 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from '../../utils/media';
+import { Audio, Video, ResizeMode } from '../../utils/media';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import FifaCard from '../../components/FifaCard';
 import AppButton from '../../components/AppButton';
 import LoadingOverlay from '../../components/LoadingOverlay';
-import { deleteVideo, getAllVideos } from '../../api/backend';
+import StrokeText from '../../components/StrokeText';
+import { deleteVideo, getAllVideos, getTeamById, getVideoComments, likeVideo, postForumMessage, unlikeVideo } from '../../api/backend';
 import { formatLikes } from '../../utils/format';
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();
@@ -37,7 +43,7 @@ const normalizeMediaUrls = (video) => {
   const extractUrl = (value) => {
     if (!value) return '';
     if (typeof value === 'string') return value;
-    if (typeof value === 'object') return value.url || value.secure_url || value.uri || '';
+    if (typeof value === 'object') return value.url || value.secure_url || value.uri || value.mediaUrl || value.imageUrl || value.src || '';
     return '';
   };
 
@@ -67,7 +73,7 @@ const normalizeMediaUrls = (video) => {
   return [];
 };
 
-export default function MyVideosScreen({ navigation, route }) {
+export default function MyVideosScreen({ navigation, route, embedded = false, onRequestClose }) {
   const { user } = useAuth();
   const { colors, gradients, spacing, typography, textScale } = useAppTheme();
   const [videos, setVideos] = useState([]);
@@ -76,13 +82,25 @@ export default function MyVideosScreen({ navigation, route }) {
   const [liked, setLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [shareVideoId, setShareVideoId] = useState(null);
+  const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingVideo, setDeletingVideo] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isBlocking = loadingVideos || deletingVideo;
   const [commentText, setCommentText] = useState('');
+  const [commentsByVideo, setCommentsByVideo] = useState({});
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
+  const [embeddedStageWidth, setEmbeddedStageWidth] = useState(0);
+  const [embeddedStageHeight, setEmbeddedStageHeight] = useState(0);
+  const [likingVideoId, setLikingVideoId] = useState(null);
+  const carouselListRef = useRef(null);
+  const audioRef = useRef(null);
+  const [activeAudioId, setActiveAudioId] = useState(null);
+  const [audioPositionMs, setAudioPositionMs] = useState(0);
+  const [audioDurationMs, setAudioDurationMs] = useState(0);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
   const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChangedRef = useRef(({ viewableItems }) => {
@@ -93,6 +111,29 @@ export default function MyVideosScreen({ navigation, route }) {
   });
   const selectedVideoId = route.params?.videoId;
   const sourceTab = route.params?.sourceTab || 'uploaded';
+  const handleClose = useCallback(() => {
+    if (embedded && typeof onRequestClose === 'function') {
+      onRequestClose();
+      return;
+    }
+
+    navigation.goBack();
+  }, [embedded, navigation, onRequestClose]);
+
+  const mapComment = useCallback((comment) => ({
+    id: comment.id || comment._id,
+    author: comment.username || comment.authorUsername,
+    authorUsername: comment.authorUsername || comment.username,
+    userId: comment.userId || comment.id_usuario,
+    authorProfileImageUrl: comment.authorProfileImageUrl,
+    authorTeamName: comment.authorTeamName,
+    authorTeamImageUrl: comment.authorTeamImageUrl,
+    authorFrameImageId: comment.authorFrameImageId,
+    type: comment.type,
+    content: comment.type === 'audio' ? null : comment.text,
+    audioUrl: comment.audioUrl,
+    audioDurationMs: comment.audioDurationMs || comment.audio_duration_ms || comment.audioDuration || 0,
+  }), []);
 
   useEffect(() => {
     const loadVideos = async () => {
@@ -155,17 +196,85 @@ export default function MyVideosScreen({ navigation, route }) {
         ? 'video'
         : 'image');
   const isCarousel = ['carousel', 'carrusel'].includes(mediaType) || mediaUrls.length > 1;
-  const sharePopupTitle = isCarousel
-    ? 'COMPARTIR CARRUSEL'
-    : mediaType === 'image'
-      ? 'COMPARTIR FOTO'
-      : 'COMPARTIR VIDEO';
   const uploaderCard = activeVideo?.uploaderCard || null;
   const uploaderName = uploaderCard?.username || (activeVideo?.id_usuario ? String(activeVideo.id_usuario).split('@')[0] : 'usuario');
   const canCycleVideos = videos.length > 1;
   const isLikedView = sourceTab === 'liked';
   const canDeleteVideo = sourceTab === 'uploaded' && Boolean(activeVideo);
-  const carouselItemWidth = carouselWidth || windowWidth;
+  const carouselItemWidth = carouselWidth || embeddedStageWidth || Math.max(1, Math.round(windowWidth * 0.335));
+  const embeddedStageHeightPx = embeddedStageHeight || Math.max(1, Math.round(windowHeight * 0.95));
+  const shareVideo = useMemo(
+    () => videos.find((item) => String(item.id) === String(shareVideoId)),
+    [shareVideoId, videos]
+  );
+  const shareMediaUrls = normalizeMediaUrls(shareVideo);
+  const normalizedShareMediaType = String(shareVideo?.mediaType || '').trim().toLowerCase();
+  const isShareCarousel = normalizedShareMediaType === 'carousel' || normalizedShareMediaType === 'carrusel' || shareMediaUrls.length > 1;
+  const isShareImage = normalizedShareMediaType === 'image' || (shareMediaUrls.length > 0 && !isLikelyVideoUrl(shareMediaUrls[0]));
+  const shareCarouselIndex = isShareCarousel
+    ? Math.max(0, Math.min(Number(carouselIndex || 0), Math.max(shareMediaUrls.length - 1, 0)))
+    : 0;
+  const shareModalTitle = isShareCarousel
+    ? 'COMPARTIR CARRUSEL'
+    : isShareImage
+      ? 'COMPARTIR FOTO'
+      : 'COMPARTIR VIDEO';
+
+  const formatTime = useCallback((ms) => {
+    if (!ms || ms < 0) return '0:00';
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, []);
+
+  const handleToggleAudio = useCallback(async (comment) => {
+    const audioUrl = comment?.audioUrl || comment?.audio_url;
+    if (!audioUrl || audioUrl === 'pending') {
+      Alert.alert('Audio no disponible', 'Este comentario aun no tiene audio.');
+      return;
+    }
+
+    try {
+      if (activeAudioId === comment.id && audioRef.current) {
+        const status = await audioRef.current.getStatusAsync();
+        if (status.isPlaying) {
+          await audioRef.current.pauseAsync();
+          setIsAudioPlaying(false);
+        } else {
+          await audioRef.current.playAsync();
+          setIsAudioPlaying(true);
+        }
+        return;
+      }
+
+      if (audioRef.current) {
+        await audioRef.current.unloadAsync();
+        audioRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true },
+        (status) => {
+          if (!status.isLoaded) return;
+          setAudioPositionMs(status.positionMillis || 0);
+          setAudioDurationMs(status.durationMillis || 0);
+          setIsAudioPlaying(Boolean(status.isPlaying));
+          if (status.didJustFinish) {
+            setIsAudioPlaying(false);
+            setAudioPositionMs(0);
+          }
+        }
+      );
+
+      audioRef.current = sound;
+      setActiveAudioId(comment.id);
+      setIsAudioPlaying(true);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo reproducir el audio.');
+    }
+  }, [activeAudioId]);
 
   const openComments = () => {
     setShowComments(true);
@@ -204,11 +313,318 @@ export default function MyVideosScreen({ navigation, route }) {
     setCarouselIndex(0);
   }, [activeVideo?.id]);
 
+  useEffect(() => {
+    const loadFanZoneEscudo = async () => {
+      if (!showShare) {
+        if (fanZoneShieldUri) {
+          setFanZoneShieldUri('');
+        }
+        return;
+      }
+
+      try {
+        const teamId = user?.teamId || user?.team || null;
+        if (!teamId) {
+          setFanZoneShieldUri(user?.teamImageUrl || '');
+          return;
+        }
+
+        const team = await getTeamById(teamId);
+        setFanZoneShieldUri(team?.escudoUrl || team?.imageUrl || user?.teamImageUrl || '');
+      } catch (error) {
+        setFanZoneShieldUri(user?.teamImageUrl || '');
+      }
+    };
+
+    loadFanZoneEscudo();
+  }, [fanZoneShieldUri, showShare, user?.team, user?.teamId, user?.teamImageUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.unloadAsync().catch(() => {});
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadComments = async () => {
+      if (!activeVideo?.id) return;
+
+      try {
+        const data = await getVideoComments(activeVideo.id);
+        if (cancelled) return;
+
+        const mapped = Array.isArray(data) ? data.map(mapComment) : [];
+        setCommentsByVideo((prev) => ({
+          ...prev,
+          [activeVideo.id]: mapped,
+        }));
+      } catch (error) {
+        console.error('Error cargando comentarios del popup:', error);
+      }
+    };
+
+    loadComments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVideo?.id, mapComment]);
+
   const updateCarouselIndex = (offsetX) => {
     if (!carouselWidth) return;
     const nextIndex = Math.round(offsetX / carouselWidth);
     setCarouselIndex(Math.max(0, Math.min(nextIndex, mediaUrls.length - 1)));
   };
+
+  const moveCarousel = useCallback((direction) => {
+    if (!isCarousel || !mediaUrls.length) return;
+
+    const nextIndex = Math.max(0, Math.min(carouselIndex + direction, mediaUrls.length - 1));
+    carouselListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+    setCarouselIndex(nextIndex);
+  }, [carouselIndex, isCarousel, mediaUrls.length]);
+
+  const handleLike = useCallback(async () => {
+    if (!activeVideo?.id || !user?.email || likingVideoId === activeVideo.id) return;
+
+    const wasLiked = Boolean(activeVideo.hasLiked);
+    setLikingVideoId(activeVideo.id);
+
+    setVideos((prev) => prev.map((item) => (
+      String(item.id) === String(activeVideo.id)
+        ? {
+            ...item,
+            likes: wasLiked ? Math.max(0, Number(item.likes || 0) - 1) : Number(item.likes || 0) + 1,
+            hasLiked: !wasLiked,
+          }
+        : item
+    )));
+
+    try {
+      const response = wasLiked
+        ? await unlikeVideo(activeVideo.id, user.email)
+        : await likeVideo(activeVideo.id, user.email);
+
+      setVideos((prev) => prev.map((item) => (
+        String(item.id) === String(activeVideo.id)
+          ? {
+              ...item,
+              likes: Number(response.likes ?? item.likes ?? 0),
+              hasLiked: Boolean(response.liked),
+            }
+          : item
+      )));
+    } catch (error) {
+      setVideos((prev) => prev.map((item) => (
+        String(item.id) === String(activeVideo.id)
+          ? {
+              ...item,
+              likes: wasLiked ? Number(item.likes || 0) + 1 : Math.max(0, Number(item.likes || 0) - 1),
+              hasLiked: wasLiked,
+            }
+          : item
+      )));
+      Alert.alert('Error', error.message || 'No se pudo actualizar el like.');
+    } finally {
+      setLikingVideoId(null);
+    }
+  }, [activeVideo?.id, activeVideo?.hasLiked, likingVideoId, user?.email]);
+
+  const handleSharePress = useCallback(() => {
+    if (!activeVideo?.id) return;
+    setShareVideoId(activeVideo.id);
+    setShowShare(true);
+  }, [activeVideo?.id]);
+
+  const closeShareModal = useCallback(() => {
+    setShowShare(false);
+    setShareVideoId(null);
+  }, []);
+
+  const buildShareUrl = useCallback((videoId, selectedCarouselIndex = null) => {
+    const encodedVideoId = encodeURIComponent(String(videoId || ''));
+    const baseUrl = `${FRONTEND_URL}/share/${encodedVideoId}`;
+    if (Number.isInteger(selectedCarouselIndex) && selectedCarouselIndex >= 0) {
+      return `${baseUrl}?carouselIndex=${selectedCarouselIndex}`;
+    }
+    return baseUrl;
+  }, []);
+
+  const writeToClipboard = useCallback(async (value) => {
+    if (Platform.OS !== 'web') {
+      try {
+        const clipboardModule = require('react-native/Libraries/Components/Clipboard/Clipboard');
+        const clipboard = clipboardModule?.default || clipboardModule;
+
+        if (clipboard?.setString) {
+          clipboard.setString(value);
+          return true;
+        }
+      } catch (error) {
+        // Fall through to other strategies.
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const textArea = document.createElement('textarea');
+      textArea.value = value;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return copied;
+    }
+
+    return false;
+  }, []);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!shareVideoId) return;
+
+    const shareUrl = buildShareUrl(shareVideoId, isShareCarousel ? shareCarouselIndex : null);
+
+    try {
+      const copied = await writeToClipboard(shareUrl);
+      if (!copied) {
+        Alert.alert('No se pudo copiar', 'No fue posible copiar el enlace en este dispositivo.');
+        return;
+      }
+
+      closeShareModal();
+      Alert.alert('Listo', 'Enlace copiado al portapapeles.');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo copiar el enlace.');
+    }
+  }, [buildShareUrl, closeShareModal, isShareCarousel, shareCarouselIndex, shareVideoId, writeToClipboard]);
+
+  const handleDownloadVideo = useCallback(async () => {
+    if (!shareVideoId) {
+      Alert.alert('Error', 'No se ha seleccionado ningun video.');
+      return;
+    }
+
+    closeShareModal();
+
+    const videoToDownload = videos.find((item) => String(item.id) === String(shareVideoId));
+    const mediaToDownload = normalizeMediaUrls(videoToDownload);
+    const normalizedMediaType = String(videoToDownload?.mediaType || '').toLowerCase();
+    const isCarouselMedia = normalizedMediaType === 'carousel' || normalizedMediaType === 'carrusel' || mediaToDownload.length > 1;
+    const selectedMediaIndex = isCarouselMedia
+      ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaToDownload.length - 1, 0)))
+      : 0;
+    const primaryMediaUrl = mediaToDownload[selectedMediaIndex] || videoToDownload?.url;
+    const isImageMedia = normalizedMediaType === 'image'
+      || (normalizedMediaType === 'carousel' && !isLikelyVideoUrl(primaryMediaUrl))
+      || (!normalizedMediaType && !isLikelyVideoUrl(primaryMediaUrl));
+    const outputExtension = isImageMedia ? 'jpg' : 'mp4';
+    const targetWidth = Math.max(1, Math.round(windowWidth || 1080));
+    const targetHeight = Math.max(1, Math.round(windowHeight || Math.round(targetWidth * 16 / 9)));
+    const downloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download-watermarked?targetWidth=${targetWidth}&targetHeight=${targetHeight}&mediaIndex=${selectedMediaIndex}`;
+    const downloadFileName = `video_${shareVideoId}_watermarked.${outputExtension}`;
+    const webDownloadUrl = `${BACKEND_URL}/api/videos/${encodeURIComponent(String(shareVideoId))}/download?mediaIndex=${selectedMediaIndex}`;
+    const webDownloadFileName = `media_${shareVideoId}.${outputExtension}`;
+    const isHostedBackend = !/localhost|127\.0\.0\.1/.test(String(BACKEND_URL || ''));
+    const shouldUseDirectDownload = Platform.OS === 'web' || isHostedBackend;
+    const resolvedDownloadUrl = shouldUseDirectDownload ? webDownloadUrl : downloadUrl;
+    const resolvedFileName = shouldUseDirectDownload ? webDownloadFileName : downloadFileName;
+
+    try {
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = resolvedDownloadUrl;
+        a.download = resolvedFileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        Alert.alert('Listo', 'Descarga iniciada.');
+        return;
+      }
+
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permisos', 'Se necesitan permisos para guardar en el dispositivo.');
+        return;
+      }
+
+      const localUri = FileSystem.documentDirectory + `sotanita_media_${shareVideoId}.${outputExtension}`;
+      const downloadResumable = FileSystem.createDownloadResumable(resolvedDownloadUrl, localUri);
+
+      const { uri } = await downloadResumable.downloadAsync();
+      const asset = await MediaLibrary.createAssetAsync(uri);
+      await MediaLibrary.createAlbumAsync('Sotanita', asset, false).catch(() => {});
+      Alert.alert('Listo', shouldUseDirectDownload ? 'Video guardado en la galeria.' : 'Video guardado en la galeria con marca de agua.');
+    } catch (error) {
+      console.error('Download error', error);
+      Alert.alert('Error', 'No se pudo descargar el video.');
+    }
+  }, [closeShareModal, shareCarouselIndex, shareVideoId, videos, windowHeight, windowWidth]);
+
+  const handleShareToFanZone = useCallback(() => {
+    if (!shareVideoId) {
+      Alert.alert('Error', 'No se ha seleccionado ningun video.');
+      return;
+    }
+
+    try {
+      closeShareModal();
+    } catch (error) {
+      // ignore
+    }
+
+    (async () => {
+      try {
+        const teamId = user?.teamId || user?.team || null;
+        const videoObj = videos.find((videoItem) => String(videoItem.id) === String(shareVideoId));
+        const mediaForShare = normalizeMediaUrls(videoObj);
+        const normalizedVideoType = String(videoObj?.mediaType || '').trim().toLowerCase();
+        const isCarouselMedia = normalizedVideoType === 'carousel' || normalizedVideoType === 'carrusel' || mediaForShare.length > 1;
+        const selectedMediaIndex = isCarouselMedia
+          ? Math.max(0, Math.min(shareCarouselIndex, Math.max(mediaForShare.length - 1, 0)))
+          : 0;
+        const thumbnail = mediaForShare[selectedMediaIndex] || videoObj?.url || null;
+        const title = videoObj?.title || videoObj?.name || videoObj?.caption || '';
+
+        if (!teamId) {
+          Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+          return;
+        }
+
+        const payload = {
+          user: user?.email || user?.id || user?.username || '',
+          type: 'share',
+          text: title || '',
+          share: {
+            videoId: String(shareVideoId),
+            thumbnailUrl: thumbnail || null,
+            title: title || '',
+            mediaType: videoObj?.mediaType || (Array.isArray(videoObj?.mediaUrls) && videoObj.mediaUrls.length > 1 ? 'carousel' : 'video'),
+            carouselIndex: isCarouselMedia ? selectedMediaIndex : null,
+          },
+        };
+
+        await postForumMessage(teamId, payload);
+        Alert.alert('Compartido', 'Video enviado a Fan Zone.');
+      } catch (error) {
+        console.error('Error compartiendo en Fan Zone', error?.message || error);
+        Alert.alert('Error', error?.message || 'No se pudo compartir en Fan Zone.');
+      }
+    })();
+  }, [closeShareModal, shareCarouselIndex, shareVideoId, user?.email, user?.id, user?.team, user?.teamId, user?.username, videos]);
 
   const handleDeleteVideo = async () => {
     if (!activeVideo?.id || !user?.email || deletingVideo) return;
@@ -222,7 +638,7 @@ export default function MyVideosScreen({ navigation, route }) {
 
         if (filtered.length === 0) {
           setCurrentVideo(0);
-          navigation.goBack();
+          handleClose();
           return filtered;
         }
 
@@ -239,13 +655,467 @@ export default function MyVideosScreen({ navigation, route }) {
     }
   };
 
+  const activeComments = activeVideo?.id ? (commentsByVideo[activeVideo.id] || []) : [];
+  const embeddedActions = (
+    <View style={styles.embeddedActionColumn}>
+      <Pressable style={styles.actionWrap} onPress={handleLike} disabled={likingVideoId === activeVideo?.id}>
+        <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}> 
+          <Ionicons name={activeVideo?.hasLiked ? 'heart' : 'heart-outline'} size={28} color={activeVideo?.hasLiked ? colors.danger : colors.white} />
+        </View>
+        <Text style={styles.actionText}>{formatLikes(activeVideo?.likes || 0)}</Text>
+      </Pressable>
+
+      <Pressable style={styles.actionWrap} onPress={handleSharePress}>
+        <View style={[styles.actionCircle, { backgroundColor: `${colors.black}88` }]}> 
+          <Ionicons name="share-social-outline" size={26} color={colors.white} />
+        </View>
+      </Pressable>
+    </View>
+  );
+
+  const renderEmbeddedVideoStage = () => {
+    if (loadingVideos) {
+      return (
+        <View style={styles.videoCenter}>
+          <Text style={{ color: `${colors.white}80` }}>Cargando videos...</Text>
+        </View>
+      );
+    }
+
+    if (!activeVideo) {
+      return (
+        <View style={styles.videoCenter}>
+          <Text style={{ color: `${colors.white}80` }}>
+            {sourceTab === 'liked'
+              ? 'No tienes videos con like'
+              : sourceTab === 'ranking'
+                ? 'No se pudo cargar el video del ranking'
+                : 'No tienes videos subidos'}
+          </Text>
+        </View>
+      );
+    }
+
+    const stageHeight = embeddedStageHeightPx;
+
+    if (mediaType === 'video') {
+      return (
+        <Pressable
+          style={styles.videoCenter}
+          onPress={() => {
+            if (!canCycleVideos) return;
+            setCurrentVideo((prev) => (prev + 1) % videos.length);
+            setLiked(false);
+            setCarouselIndex(0);
+          }}
+        >
+          <Video
+            style={StyleSheet.absoluteFillObject}
+            source={{ uri: activeVideo.url }}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            shouldPlay
+            isMuted={false}
+            volume={1.0}
+          />
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
+          <View style={styles.infoWrapper}>
+            {uploaderCard ? (
+              <View style={styles.uploaderCardWrap}>
+                <FifaCard
+                  username={uploaderCard.username || uploaderName}
+                  position={uploaderCard.position}
+                  team={uploaderCard.teamName}
+                  backgroundUrl={uploaderCard.teamImageUrl}
+                  frameUrl={uploaderCard.frameImageId}
+                  frameId={uploaderCard.frameId}
+                  photoUrl={uploaderCard.profileImageUrl}
+                  size="small"
+                  disableShadow
+                />
+              </View>
+            ) : null}
+            <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+              {activeVideo?.user || uploaderName}
+            </Text>
+            {activeVideo?.title ? (
+              <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}>
+                {activeVideo.title}
+              </Text>
+            ) : null}
+            {activeVideo?.description ? (
+              <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}>
+                {activeVideo.description}
+              </Text>
+            ) : null}
+            {activeVideo?.category ? (
+              <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}>
+                  {activeVideo.category}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {embeddedActions}
+        </Pressable>
+      );
+    }
+
+    if (isCarousel) {
+      return (
+        <View
+          style={[styles.videoCenter, { height: stageHeight }]}
+          onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
+        >
+          <FlatList
+            ref={carouselListRef}
+            key={activeVideo?.id || 'carousel'}
+            data={mediaUrls}
+            horizontal
+            pagingEnabled
+            scrollEnabled
+            extraData={mediaUrls.length}
+            keyExtractor={(item, index) => `${item}-${index}`}
+            renderItem={({ item }) => (
+              <View style={{ width: carouselItemWidth, height: stageHeight }}>
+                <Image
+                  source={{ uri: item }}
+                  resizeMode="cover"
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </View>
+            )}
+            getItemLayout={(_, index) => ({
+              length: carouselItemWidth,
+              offset: carouselItemWidth * index,
+              index,
+            })}
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(event) => updateCarouselIndex(event.nativeEvent.contentOffset.x)}
+            onScroll={(event) => updateCarouselIndex(event.nativeEvent.contentOffset.x)}
+            scrollEventThrottle={16}
+            onViewableItemsChanged={onViewableItemsChangedRef.current}
+            viewabilityConfig={viewabilityConfigRef.current}
+            style={styles.carouselScroll}
+            contentContainerStyle={[styles.carouselContent, { height: stageHeight }]}
+            snapToInterval={Platform.OS === 'web' ? carouselItemWidth : undefined}
+            snapToAlignment={Platform.OS === 'web' ? 'start' : undefined}
+            decelerationRate={Platform.OS === 'web' ? 'fast' : undefined}
+            initialNumToRender={2}
+            windowSize={3}
+            removeClippedSubviews={false}
+          />
+          {mediaUrls.length > 1 ? (
+            <>
+              <Pressable
+                onPress={() => moveCarousel(-1)}
+                style={({ pressed }) => [
+                  styles.carouselArrow,
+                  styles.carouselArrowLeft,
+                  { opacity: pressed ? 0.85 : 1, backgroundColor: `${colors.black}88` },
+                ]}
+              >
+                <Ionicons name="chevron-back" size={28} color={colors.white} />
+              </Pressable>
+              <Pressable
+                onPress={() => moveCarousel(1)}
+                style={({ pressed }) => [
+                  styles.carouselArrow,
+                  styles.carouselArrowRight,
+                  { opacity: pressed ? 0.85 : 1, backgroundColor: `${colors.black}88` },
+                ]}
+              >
+                <Ionicons name="chevron-forward" size={28} color={colors.white} />
+              </Pressable>
+            </>
+          ) : null}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.2)']}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
+          <View style={styles.infoWrapper}>
+            {uploaderCard ? (
+              <View style={styles.uploaderCardWrap}>
+                <FifaCard
+                  username={uploaderCard.username || uploaderName}
+                  position={uploaderCard.position}
+                  team={uploaderCard.teamName}
+                  backgroundUrl={uploaderCard.teamImageUrl}
+                  frameUrl={uploaderCard.frameImageId}
+                  frameId={uploaderCard.frameId}
+                  photoUrl={uploaderCard.profileImageUrl}
+                  size="small"
+                  disableShadow
+                />
+              </View>
+            ) : null}
+            <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+              {activeVideo?.user || uploaderName}
+            </Text>
+            {activeVideo?.title ? (
+              <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}>
+                {activeVideo.title}
+              </Text>
+            ) : null}
+            {activeVideo?.description ? (
+              <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}>
+                {activeVideo.description}
+              </Text>
+            ) : null}
+            {activeVideo?.category ? (
+              <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}>
+                  {activeVideo.category}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {embeddedActions}
+        </View>
+      );
+    }
+
+    return (
+      <Pressable
+        style={styles.videoCenter}
+        onPress={() => {
+          if (!canCycleVideos) return;
+          setCurrentVideo((prev) => (prev + 1) % videos.length);
+          setLiked(false);
+          setCarouselIndex(0);
+        }}
+      >
+        <Image
+          source={{ uri: activeVideo.url }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+        />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
+        <View style={styles.infoWrapper}>
+          {uploaderCard ? (
+            <View style={styles.uploaderCardWrap}>
+              <FifaCard
+                username={uploaderCard.username || uploaderName}
+                position={uploaderCard.position}
+                team={uploaderCard.teamName}
+                backgroundUrl={uploaderCard.teamImageUrl}
+                frameUrl={uploaderCard.frameImageId}
+                frameId={uploaderCard.frameId}
+                photoUrl={uploaderCard.profileImageUrl}
+                size="small"
+                disableShadow
+              />
+            </View>
+          ) : null}
+          <Text style={[styles.title, { color: colors.white, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }]}>@
+            {activeVideo?.user || uploaderName}
+          </Text>
+          {activeVideo?.title ? (
+            <Text style={[styles.description, { color: colors.white, fontSize: typography.sizes.md * textScale }]}>
+              {activeVideo.title}
+            </Text>
+          ) : null}
+          {activeVideo?.description ? (
+            <Text style={[styles.descriptionText, { color: '#DDD', fontSize: typography.sizes.sm * textScale }]}>
+              {activeVideo.description}
+            </Text>
+          ) : null}
+          {activeVideo?.category ? (
+            <View style={[styles.categoryBadge, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.categoryText, { color: colors.black, fontWeight: '700', fontSize: typography.sizes.xs * textScale }]}>
+                {activeVideo.category}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        {embeddedActions}
+      </Pressable>
+    );
+  };
+
+  const renderEmbeddedCommentsPanel = () => (
+    <View style={[styles.embeddedCommentsPanel, { backgroundColor: colors.surface, borderLeftColor: colors.border }]}> 
+      <View style={[styles.embeddedCommentsHeader, { borderBottomColor: colors.border }]}> 
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontFamily: typography.families.nougat, fontSize: typography.sizes.lg * textScale }}>
+            Comentarios
+          </Text>
+          <Text style={{ color: colors.textMuted, marginTop: 4 }} numberOfLines={1}>
+            {activeVideo?.title || 'Video actual'}
+          </Text>
+        </View>
+      </View>
+
+      {activeVideo?.id && commentsByVideo[activeVideo.id] === undefined ? (
+        <View style={styles.embeddedCommentsEmpty}>
+          <Text style={{ color: colors.textMuted }}>Cargando comentarios...</Text>
+        </View>
+      ) : activeComments.length === 0 ? (
+        <View style={styles.embeddedCommentsEmpty}>
+          <Text style={{ color: colors.textMuted }}>Este post aun no tiene comentarios.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={activeComments}
+          keyExtractor={(item, index) => String(item.id || item._id || index)}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl }}
+          renderItem={({ item }) => (
+            <View style={styles.commentRow}>
+              <FifaCard
+                username={item.author || item.authorUsername || 'Usuario'}
+                team={item.authorTeamName || 'Sin equipo'}
+                position="---"
+                photoUrl={item.authorProfileImageUrl}
+                backgroundUrl={item.authorTeamImageUrl}
+                frameUrl={item.authorFrameImageId}
+                size="small"
+                disableShadow
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: typography.weights.semibold }}>
+                  {item.author || item.authorUsername || 'Usuario'}
+                </Text>
+                <Text style={{ color: colors.textMuted }}>
+                  {(item.type || item?.type) === 'audio' ? 'Mensaje de Audio' : (item.content || 'Comentario sin texto')}
+                </Text>
+                {(item.type || item?.type) === 'audio' ? (
+                  <Pressable
+                    onPress={() => handleToggleAudio(item)}
+                    style={[styles.audioBubble, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}
+                  >
+                    <Ionicons
+                      name={activeAudioId === item.id && isAudioPlaying ? 'pause' : 'play'}
+                      size={20}
+                      color={colors.text}
+                    />
+                    <Text style={{ color: colors.text, marginLeft: 10, fontWeight: '700' }}>
+                      {activeAudioId === item.id
+                        ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
+                        : formatTime(item.audioDurationMs || 0)}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          )}
+        />
+      )}
+
+      <View style={[styles.commentInputRow, { borderTopColor: colors.border }]}> 
+        <TextInput
+          value={commentText}
+          onChangeText={setCommentText}
+          placeholder="Anade un comentario..."
+          placeholderTextColor={colors.textMuted}
+          style={[styles.commentInput, { backgroundColor: colors.surfaceElevated, color: colors.text }]}
+        />
+        <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary }]} onPress={() => setCommentText('')}>
+          <Ionicons name="send" size={18} color={colors.black} />
+        </Pressable>
+        <Pressable style={[styles.actionCircle, { backgroundColor: colors.surfaceElevated }]} onPress={() => {}}>
+          <Ionicons name="mic" size={18} color={colors.text} />
+        </Pressable>
+      </View>
+    </View>
+  );
+
   return (
+    embedded ? (
+      <>
+        <View style={[styles.embeddedRoot, { backgroundColor: colors.surface }]}> 
+          <View
+            style={styles.embeddedVideoPane}
+            onLayout={(event) => {
+              setEmbeddedStageWidth(event.nativeEvent.layout.width);
+              setEmbeddedStageHeight(event.nativeEvent.layout.height);
+            }}
+          >
+            <View style={[styles.embeddedTopBar, { padding: spacing.md }]}> 
+              <Pressable onPress={handleClose} style={[styles.roundButton, { backgroundColor: `${colors.black}88` }]}> 
+                <Ionicons name="arrow-back" size={20} color={colors.white} />
+              </Pressable>
+            </View>
+
+            {renderEmbeddedVideoStage()}
+          </View>
+
+          {renderEmbeddedCommentsPanel()}
+        </View>
+
+        <Modal visible={showShare} transparent animationType="fade" onRequestClose={closeShareModal}>
+          <Pressable style={styles.shareOverlay} onPress={closeShareModal}>
+            <Pressable style={[styles.shareCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: typography.sizes.xl * textScale * 1.5, textAlign: 'center', marginBottom: 8, fontFamily: typography.families.nougat }}>
+                {shareModalTitle}
+              </Text>
+
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, textAlign: 'center', marginBottom: 12 }}>
+                Comparte este contenido en un toque
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+                <Pressable onPress={handleCopyShareLink} style={[styles.shareRectButton, { backgroundColor: colors.primary }]}>
+                    <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <View style={{ width: 62, height: 62, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="copy" size={62} color="#000" style={{ position: 'absolute' }} />
+                        <Ionicons name="copy" size={56} color={colors.white} />
+                      </View>
+                      <StrokeText
+                        strokeColor="#000"
+                        strokeWidth={3}
+                        style={{
+                          color: colors.white,
+                          fontWeight: '700',
+                          textAlign: 'center',
+                        }}
+                      >
+                        Copiar enlace
+                      </StrokeText>
+                    </View>
+                  </Pressable>
+
+                <Pressable onPress={handleShareToFanZone} style={[styles.shareRectButton, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}> 
+                  <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Image source={fanZoneShieldUri ? { uri: fanZoneShieldUri } : require('../../../assets/perfil/teamChange_light.png')} style={{ width: 56, height: 56, borderRadius: 12 }} resizeMode="contain" />
+                    <Text style={{ color: colors.text, fontWeight: '700', textAlign: 'center' }}>Compartir en Fan Zone</Text>
+                  </View>
+                </Pressable>
+              </View>
+
+
+              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.sm * textScale, marginBottom: 8, textAlign: 'center' }}>O si lo prefieres...</Text>
+
+              <Pressable onPress={handleDownloadVideo} style={[styles.downloadButton, { backgroundColor: colors.primary }]}> 
+                <StrokeText
+                  strokeColor="#000"
+                  strokeWidth={2}
+                  style={{
+                    color: colors.white,
+                    fontWeight: '700',
+                    textAlign: 'center',
+                    fontFamily: typography.families.nougat,
+                    textTransform: 'uppercase',
+                    fontSize: typography.sizes.xl * textScale * 1.2,
+                    lineHeight: typography.sizes.xl * textScale * 1.25,
+                  }}
+                >
+                  DESCARGAR
+                </StrokeText>
+              </Pressable>
+
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </>
+    ) : (
     <View style={styles.root}>
       <LinearGradient colors={gradients.video} style={StyleSheet.absoluteFillObject} />
 
-      <SafeAreaView style={[styles.safeArea, { minHeight: windowHeight }]}>
+      <SafeAreaView style={embedded ? styles.embeddedSafeArea : [styles.safeArea, { minHeight: windowHeight }]}>
         <View style={[styles.topBar, { padding: spacing.md }]}> 
-          <Pressable onPress={() => navigation.goBack()} style={[styles.roundButton, { backgroundColor: `${colors.black}88` }]}> 
+          <Pressable onPress={handleClose} style={[styles.roundButton, { backgroundColor: `${colors.black}88` }]}> 
             <Ionicons name="arrow-back" size={20} color={colors.white} />
           </Pressable>
 
@@ -356,6 +1226,7 @@ export default function MyVideosScreen({ navigation, route }) {
               onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
             >
               <FlatList
+                ref={carouselListRef}
                 key={activeVideo?.id || 'carousel'}
                 data={mediaUrls}
                 horizontal
@@ -392,6 +1263,30 @@ export default function MyVideosScreen({ navigation, route }) {
                 windowSize={3}
                 removeClippedSubviews={false}
               />
+              {mediaUrls.length > 1 ? (
+                <>
+                  <Pressable
+                    onPress={() => moveCarousel(-1)}
+                    style={({ pressed }) => [
+                      styles.carouselArrow,
+                      styles.carouselArrowLeft,
+                      { opacity: pressed ? 0.85 : 1, backgroundColor: `${colors.black}88` },
+                    ]}
+                  >
+                    <Ionicons name="chevron-back" size={28} color={colors.white} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => moveCarousel(1)}
+                    style={({ pressed }) => [
+                      styles.carouselArrow,
+                      styles.carouselArrowRight,
+                      { opacity: pressed ? 0.85 : 1, backgroundColor: `${colors.black}88` },
+                    ]}
+                  >
+                    <Ionicons name="chevron-forward" size={28} color={colors.white} />
+                  </Pressable>
+                </>
+              ) : null}
               <LinearGradient
                 colors={['transparent', 'rgba(0,0,0,0.2)']}
                 style={StyleSheet.absoluteFillObject}
@@ -584,20 +1479,39 @@ export default function MyVideosScreen({ navigation, route }) {
         </View>
       ) : null}
 
-      <Modal visible={showShare} transparent animationType="slide" onRequestClose={() => setShowShare(false)}>
-        <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={() => setShowShare(false)}>
-          <Pressable style={[styles.shareSheet, { backgroundColor: colors.surface }]} onPress={() => {}}>
-            <View style={styles.sheetHeader}>
-              <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale }}>
-                {sharePopupTitle}
-              </Text>
-              <Pressable onPress={() => setShowShare(false)}>
-                <Ionicons name="close" size={26} color={colors.text} />
+      <Modal visible={showShare} transparent animationType="fade" onRequestClose={closeShareModal}>
+        <Pressable style={styles.shareOverlay} onPress={closeShareModal}>
+          <Pressable style={[styles.shareCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => {}}>
+            <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontFamily: typography.families.nougat, fontSize: typography.sizes.xl * textScale, marginBottom: spacing.md }}>
+              {shareModalTitle}
+            </Text>
+
+            <View style={{ width: '100%', flexDirection: 'row', gap: 12, marginBottom: spacing.md }}>
+              <Pressable onPress={handleCopyShareLink} style={[styles.shareRectButton, { backgroundColor: colors.primary }]}>
+                <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Ionicons name="link" size={28} color={colors.white} />
+                </View>
+                <Text style={{ color: colors.white, fontWeight: '700', textAlign: 'center' }}>
+                  Copiar enlace
+                </Text>
+              </Pressable>
+
+              <Pressable onPress={handleShareToFanZone} style={[styles.shareRectButton, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}> 
+                <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center', marginBottom: 8, overflow: 'hidden' }}>
+                  <Image source={fanZoneShieldUri ? { uri: fanZoneShieldUri } : require('../../../assets/perfil/teamChange_light.png')} style={{ width: 56, height: 56, borderRadius: 12 }} resizeMode="contain" />
+                </View>
+                <Text style={{ color: colors.text, fontWeight: '700', textAlign: 'center' }}>Compartir en Fan Zone</Text>
               </Pressable>
             </View>
 
-            <AppButton title="Compartir enlace" variant="secondary" style={{ marginBottom: spacing.sm }} />
-            <AppButton title="Descargar video" variant="secondary" />
+            <Pressable onPress={handleDownloadVideo} style={[styles.downloadButton, { backgroundColor: colors.primary }]}> 
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <Ionicons name="download-outline" size={22} color={colors.white} />
+                <Text style={{ color: colors.white, fontWeight: '800', letterSpacing: 0.8 }}>
+                  DESCARGAR
+                </Text>
+              </View>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -618,6 +1532,7 @@ export default function MyVideosScreen({ navigation, route }) {
       </Modal>
       <LoadingOverlay visible={isBlocking} />
     </View>
+    )
   );
 }
 
@@ -626,7 +1541,43 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  embeddedRoot: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  embeddedVideoPane: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  embeddedTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 6,
+  },
+  embeddedCommentsPanel: {
+    flex: 1,
+    borderLeftWidth: 1,
+  },
+  embeddedCommentsEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  embeddedCommentsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
   safeArea: {
+    flex: 1,
+  },
+  embeddedSafeArea: {
     flex: 1,
   },
   topBar: {
@@ -656,6 +1607,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
   },
+  embeddedActionColumn: {
+    position: 'absolute',
+    right: 20,
+    bottom: 120,
+    alignItems: 'center',
+    gap: 20,
+    zIndex: 7,
+  },
   carouselScroll: {
     flex: 1,
     width: '100%',
@@ -673,6 +1632,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
+  actionText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+  },
   actionCircle: {
     width: 48,
     height: 48,
@@ -680,6 +1643,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  shareOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.72)' },
+  shareCard: { width: '100%', maxWidth: 440, borderWidth: 1, borderRadius: 24, paddingHorizontal: 30, paddingVertical: 24, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.28, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  shareRectButton: { flex: 1, borderRadius: 20, paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  circleIconButton: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
+  downloadButton: { width: '100%', paddingVertical: 18, paddingHorizontal: 18, borderRadius: 28 },
   infoWrapper: {
     position: 'absolute',
     left: 16,
@@ -768,6 +1736,42 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 40,
   },
+  shareOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  shareCard: {
+    width: '100%',
+    maxWidth: 440,
+    borderWidth: 1,
+    borderRadius: 24,
+    paddingHorizontal: 30,
+    paddingVertical: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  shareRectButton: {
+    flex: 1,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  downloadButton: {
+    width: '100%',
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    borderRadius: 28,
+  },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -790,6 +1794,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  audioBubble: {
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
   commentInput: {
     flex: 1,
     minHeight: 46,
@@ -804,5 +1818,22 @@ const styles = StyleSheet.create({
   dialogActions: {
     flexDirection: 'row',
     gap: 8,
+  },
+  carouselArrow: {
+    position: 'absolute',
+    top: '50%',
+    width: 52,
+    height: 52,
+    marginTop: -26,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 8,
+  },
+  carouselArrowLeft: {
+    left: 18,
+  },
+  carouselArrowRight: {
+    right: 18,
   },
 });
