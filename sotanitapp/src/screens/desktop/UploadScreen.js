@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Platform } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../hooks/useAppTheme';
@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function UploadScreen({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const { user } = useAuth();
 
   const [mediaFiles, setMediaFiles] = useState([]);
@@ -235,147 +236,167 @@ export default function UploadScreen({ navigation }) {
         onBack={() => navigation.goBack()}
       />
 
-      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: spacing.xl, paddingBottom: 30 }}>
-        <View style={{ marginBottom: spacing.lg }}>
-          {!mediaFiles.length ? (
-            <Pressable
-              onPress={pickVideo}
-              style={[styles.uploadArea, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              disabled={loading}
-            >
-              <Ionicons name="cloud-upload-outline" size={70} color={colors.textMuted} />
-              <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginTop: spacing.sm }}>Selecciona un archivo</Text>
-              <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>Video o carrusel de imagenes verticales</Text>
-            </Pressable>
-          ) : (
-            <View style={[styles.previewArea, { backgroundColor: colors.surface }]}> 
-              <View style={[styles.mockVideo, { backgroundColor: `${colors.secondary}22` }]}>
-                {mediaType === 'video' ? (
-                  <Ionicons name="play" size={68} color={colors.textMuted} />
-                ) : (
-                  <Ionicons name="image" size={68} color={colors.textMuted} />
-                )}
+      <ScrollView ref={scrollRef} contentContainerStyle={[styles.scrollContent, { paddingHorizontal: spacing.xl, paddingBottom: 30 }]}>
+        <View style={[styles.desktopShell, { width: windowWidth * 0.7 }]}>
+          <View style={[styles.leftSection, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            <AppInput
+              label="Título"
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Describe tu jugada..."
+            />
+
+            <View style={styles.categoryField}>
+              <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginBottom: spacing.xs }}>Categoría</Text>
+              <View style={[styles.categorySelectWrap, { backgroundColor: categorySelectBackground }]}> 
+                <Pressable style={styles.categorySelectButton} onPress={() => setShowCategoryPicker((value) => !value)}>
+                  <Text
+                    style={{
+                      color: categoryLabelColor,
+                      fontFamily: typography.families.nougat,
+                      fontSize: categoryFontSize,
+                      textAlign: 'center',
+                      flex: 1,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {categoryLabel}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
+                </Pressable>
               </View>
-              <Pressable onPress={() => { setMediaFiles([]); setMediaType(null); }} style={[styles.removeButton, { backgroundColor: `${colors.black}88` }]} disabled={loading}> 
-                <Ionicons name="close" size={20} color={colors.white} />
-              </Pressable>
-              <View style={[styles.fileTag, { backgroundColor: `${colors.black}88` }]}> 
-                <Text style={{ color: colors.white, fontWeight: typography.weights.semibold }} numberOfLines={1}>
-                  {mediaType === 'carousel'
-                    ? `${mediaFiles.length} imagenes seleccionadas`
-                    : mediaFiles[0]?.name}
-                </Text>
-              </View>
+
+              {showCategoryPicker ? (
+                <View style={[styles.inlineCategoryMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+                  <Pressable
+                    onPress={() => {
+                      setCategory('');
+                      setShowCategoryPicker(false);
+                    }}
+                    style={[styles.categoryMenuItem, category === '' && { backgroundColor: `${colors.primary}15` }]}
+                  >
+                    <Text
+                      style={{
+                        color: categoryTextColor,
+                        fontFamily: typography.families.nougat,
+                        fontSize: categoryItemFontSize,
+                        textAlign: 'center',
+                      }}
+                    >
+                      Selecciona una categoría
+                    </Text>
+                  </Pressable>
+                  {categories.map((item) => (
+                    <Pressable
+                      key={item}
+                      onPress={() => {
+                        setCategory(item);
+                        setShowCategoryPicker(false);
+                      }}
+                      style={[styles.categoryMenuItem, item === category && { backgroundColor: `${colors.primary}15` }]}
+                    >
+                      <Text
+                        style={{
+                          color: categoryTextColor,
+                          fontFamily: typography.families.nougat,
+                          fontSize: categoryItemFontSize,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {item}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </View>
-          )}
+
+            <AppInput
+              label="Descripción (opcional)"
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Añade más detalles sobre tu video..."
+              multiline
+              numberOfLines={4}
+            />
+
+            <AppButton
+              title="Publicar video"
+              onPress={checkAndUpload}
+              disabled={loading || !mediaFiles.length || !title || !category}
+              loading={loading}
+              style={{ marginTop: spacing.md }}
+            />
+          </View>
+
+          <View style={[styles.rightSection, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+            {!mediaFiles.length ? (
+              <Pressable
+                onPress={pickVideo}
+                style={[styles.uploadArea, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                disabled={loading}
+              >
+                <Ionicons name="cloud-upload-outline" size={70} color={colors.textMuted} />
+                <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginTop: spacing.sm, textAlign: 'center' }}>Selecciona un archivo</Text>
+                <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale, textAlign: 'center' }}>Video o carrusel de imagenes verticales</Text>
+              </Pressable>
+            ) : (
+              <View style={[styles.previewArea, { backgroundColor: colors.surface }]}> 
+                <View style={[styles.mockVideo, { backgroundColor: `${colors.secondary}22` }]}>
+                  {mediaType === 'video' ? (
+                    <Ionicons name="play" size={68} color={colors.textMuted} />
+                  ) : (
+                    <Ionicons name="image" size={68} color={colors.textMuted} />
+                  )}
+                </View>
+                <Pressable onPress={() => { setMediaFiles([]); setMediaType(null); }} style={[styles.removeButton, { backgroundColor: `${colors.black}88` }]} disabled={loading}> 
+                  <Ionicons name="close" size={20} color={colors.white} />
+                </Pressable>
+                <View style={[styles.fileTag, { backgroundColor: `${colors.black}88` }]}> 
+                  <Text style={{ color: colors.white, fontWeight: typography.weights.semibold }} numberOfLines={1}>
+                    {mediaType === 'carousel'
+                      ? `${mediaFiles.length} imagenes seleccionadas`
+                      : mediaFiles[0]?.name}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
         </View>
-
-        <AppInput
-          label="Título"
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Describe tu jugada..."
-        />
-
-        <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, marginBottom: spacing.xs }}>Categoría</Text>
-        <View style={[styles.categorySelectWrap, { backgroundColor: categorySelectBackground }]}> 
-          <Pressable style={styles.categorySelectButton} onPress={() => setShowCategoryPicker(true)}>
-            <Text
-              style={{
-                color: categoryLabelColor,
-                fontFamily: typography.families.nougat,
-                fontSize: categoryFontSize,
-                textAlign: 'center',
-                flex: 1,
-              }}
-              numberOfLines={1}
-            >
-              {categoryLabel}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
-          </Pressable>
-        </View>
-
-        <AppInput
-          label="Descripción (opcional)"
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Añade más detalles sobre tu video..."
-          multiline
-          numberOfLines={4}
-        />
-
-        <AppButton
-          title="Publicar video"
-          onPress={checkAndUpload}
-          disabled={loading || !mediaFiles.length || !title || !category}
-          loading={loading}
-          style={{ marginTop: spacing.md }}
-        />
       </ScrollView>
 
-      <Modal
-        visible={showCategoryPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowCategoryPicker(false)}
-      >
-        <Pressable
-          style={[styles.categoryOverlay, { backgroundColor: colors.overlay }]}
-          onPress={() => setShowCategoryPicker(false)}
-        >
-          <View style={[styles.categoryMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <Pressable
-              onPress={() => {
-                setCategory('');
-                setShowCategoryPicker(false);
-              }}
-              style={[styles.categoryMenuItem, category === '' && { backgroundColor: `${colors.primary}15` }]}
-            >
-              <Text
-                style={{
-                  color: categoryTextColor,
-                  fontFamily: typography.families.nougat,
-                  fontSize: categoryItemFontSize,
-                  textAlign: 'center',
-                }}
-              >
-                Selecciona una categoría
-              </Text>
-            </Pressable>
-            {categories.map((item) => (
-              <Pressable
-                key={item}
-                onPress={() => {
-                  setCategory(item);
-                  setShowCategoryPicker(false);
-                }}
-                style={[styles.categoryMenuItem, item === category && { backgroundColor: `${colors.primary}15` }]}
-              >
-                <Text
-                  style={{
-                    color: categoryTextColor,
-                    fontFamily: typography.families.nougat,
-                    fontSize: categoryItemFontSize,
-                    textAlign: 'center',
-                  }}
-                >
-                  {item}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
       <LoadingOverlay visible={loading} />
     </ScreenGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  desktopShell: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 24,
+  },
+  leftSection: {
+    flex: 1.15,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
+    overflow: 'visible',
+  },
+  rightSection: {
+    flex: 0.85,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
+  },
   uploadArea: {
     width: '100%',
-    aspectRatio: 9 / 16,
+    flex: 1,
     borderRadius: 20,
     borderWidth: 2,
     borderStyle: 'dashed',
@@ -384,7 +405,7 @@ const styles = StyleSheet.create({
   },
   previewArea: {
     width: '100%',
-    aspectRatio: 9 / 16,
+    flex: 1,
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -419,6 +440,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
+  categoryField: {
+    position: 'relative',
+    zIndex: 20,
+    marginBottom: 12,
+  },
   categorySelectButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -427,14 +453,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 8,
   },
-  categoryOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 18,
-  },
-  categoryMenu: {
+  inlineCategoryMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 8,
     borderWidth: 1,
     borderRadius: 16,
+    zIndex: 30,
     overflow: 'hidden',
   },
   categoryMenuItem: {

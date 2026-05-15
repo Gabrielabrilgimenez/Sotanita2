@@ -73,7 +73,7 @@ const normalizeMediaUrls = (video) => {
   return [];
 };
 
-export default function MyVideosScreen({ navigation, route, embedded = false, onRequestClose }) {
+export default function MyVideosScreen({ navigation, route, embedded = false, onRequestClose, onVideoDeleted }) {
   const { user } = useAuth();
   const { colors, gradients, spacing, typography, textScale } = useAppTheme();
   const [videos, setVideos] = useState([]);
@@ -84,7 +84,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   const [showShare, setShowShare] = useState(false);
   const [shareVideoId, setShareVideoId] = useState(null);
   const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteVideo, setPendingDeleteVideo] = useState(null);
   const [deletingVideo, setDeletingVideo] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isBlocking = loadingVideos || deletingVideo;
@@ -111,6 +111,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   });
   const selectedVideoId = route.params?.videoId;
   const sourceTab = route.params?.sourceTab || 'uploaded';
+  const currentUserId = String(user?.email || '').trim().toLowerCase();
   const handleClose = useCallback(() => {
     if (embedded && typeof onRequestClose === 'function') {
       onRequestClose();
@@ -200,7 +201,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   const uploaderName = uploaderCard?.username || (activeVideo?.id_usuario ? String(activeVideo.id_usuario).split('@')[0] : 'usuario');
   const canCycleVideos = videos.length > 1;
   const isLikedView = sourceTab === 'liked';
-  const canDeleteVideo = sourceTab === 'uploaded' && Boolean(activeVideo);
+  const canDeleteVideo = Boolean(activeVideo) && String(activeVideo.uploader || '').trim().toLowerCase() === currentUserId;
   const carouselItemWidth = carouselWidth || embeddedStageWidth || Math.max(1, Math.round(windowWidth * 0.335));
   const embeddedStageHeightPx = embeddedStageHeight || Math.max(1, Math.round(windowHeight * 0.95));
   const shareVideo = useMemo(
@@ -627,14 +628,15 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   }, [closeShareModal, shareCarouselIndex, shareVideoId, user?.email, user?.id, user?.team, user?.teamId, user?.username, videos]);
 
   const handleDeleteVideo = async () => {
-    if (!activeVideo?.id || !user?.email || deletingVideo) return;
+    const videoToDelete = pendingDeleteVideo || activeVideo;
+    if (!videoToDelete?.id || !user?.email || deletingVideo) return;
 
     setDeletingVideo(true);
     try {
-      await deleteVideo(activeVideo.id, user.email);
+      await deleteVideo(videoToDelete.id, user.email);
 
       setVideos((prev) => {
-        const filtered = prev.filter((video) => String(video.id) !== String(activeVideo.id));
+        const filtered = prev.filter((video) => String(video.id) !== String(videoToDelete.id));
 
         if (filtered.length === 0) {
           setCurrentVideo(0);
@@ -646,7 +648,10 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
         return filtered;
       });
 
-      setShowDeleteConfirm(false);
+      setPendingDeleteVideo(null);
+      if (embedded && typeof onVideoDeleted === 'function') {
+        await onVideoDeleted();
+      }
       Alert.alert('Listo', 'Publicacion eliminada correctamente.');
     } catch (error) {
       Alert.alert('Error', error.message || 'No se pudo eliminar la publicacion.');
@@ -670,6 +675,20 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
           <Ionicons name="share-social-outline" size={26} color={colors.white} />
         </View>
       </Pressable>
+
+      {embedded && canDeleteVideo ? (
+        <Pressable
+          style={styles.actionWrap}
+          onPressIn={(event) => event?.stopPropagation?.()}
+          onPress={() => setPendingDeleteVideo(activeVideo)}
+          disabled={deletingVideo}
+        >
+          <View style={[styles.actionCircle, { backgroundColor: `${colors.danger}CC` }]}> 
+            <Ionicons name="trash-outline" size={24} color={colors.white} />
+          </View>
+          <Text style={[styles.actionText, { color: colors.danger }]}>Eliminar</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 
@@ -1120,7 +1139,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
           </Pressable>
 
           {canDeleteVideo ? (
-            <Pressable onPress={() => setShowDeleteConfirm(true)} style={[styles.roundButton, { backgroundColor: `${colors.danger}CC` }]}> 
+            <Pressable onPress={() => setPendingDeleteVideo(activeVideo)} style={[styles.roundButton, { backgroundColor: `${colors.danger}CC` }]}> 
               <Ionicons name="trash" size={20} color={colors.white} />
             </Pressable>
           ) : (
@@ -1516,15 +1535,15 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
         </Pressable>
       </Modal>
 
-      <Modal visible={canDeleteVideo && showDeleteConfirm} transparent animationType="fade" onRequestClose={() => setShowDeleteConfirm(false)}>
-        <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={() => setShowDeleteConfirm(false)}>
+      <Modal visible={Boolean(pendingDeleteVideo)} transparent animationType="fade" onRequestClose={() => setPendingDeleteVideo(null)}>
+        <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={() => setPendingDeleteVideo(null)}>
           <Pressable style={[styles.dialog, { backgroundColor: colors.surface }]} onPress={() => {}}>
             <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale, marginBottom: 8 }}>
               Eliminar video?
             </Text>
             <Text style={{ color: colors.textMuted, marginBottom: 16 }}>Esta accion no se puede deshacer.</Text>
             <View style={styles.dialogActions}>
-              <AppButton title="Cancelar" variant="secondary" onPress={() => setShowDeleteConfirm(false)} style={{ flex: 1 }} />
+              <AppButton title="Cancelar" variant="secondary" onPress={() => setPendingDeleteVideo(null)} style={{ flex: 1 }} />
               <AppButton title="Eliminar" variant="danger" loading={deletingVideo} onPress={handleDeleteVideo} style={{ flex: 1 }} />
             </View>
           </Pressable>

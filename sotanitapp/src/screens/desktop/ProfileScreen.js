@@ -506,6 +506,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
   const forumTeamId = isLoggedIn ? user?.teamId : null;
   const desktopMainSectionWidth = (windowWidth * 2) / 3;
   const desktopSelectModalWidth = Math.max(320, Math.round(desktopMainSectionWidth * 0.9));
+  const desktopPhotoModalWidth = Math.round(windowWidth * 0.35);
   const desktopTeamPickerItemWidth = Math.max(150, Math.min(240, Math.round((desktopSelectModalWidth - 48) / 3)));
   const desktopTeamPickerItemHeight = Math.round(desktopTeamPickerItemWidth * 1.18);
 
@@ -938,7 +939,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
 
       <Modal visible={showPhotoModal} transparent animationType="fade" onRequestClose={() => setShowPhotoModal(false)}>
         <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={() => setShowPhotoModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface }]} onPress={() => {}}>
+          <Pressable style={[styles.modalCard, { width: desktopPhotoModalWidth, backgroundColor: colors.surface }]} onPress={() => {}}>
             <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, marginBottom: spacing.sm }}>
               Cambiar foto de perfil
             </Text>

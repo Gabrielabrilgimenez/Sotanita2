@@ -419,6 +419,7 @@ export default function HomeScreen({ navigation, route }) {
           >
             <Pressable
               onPress={() => {}}
+              onPressIn={(event) => event?.stopPropagation?.()}
               onWheel={handlePopupWheel}
               style={[
                 styles.videoPopupCard,
@@ -449,6 +450,7 @@ export default function HomeScreen({ navigation, route }) {
                     navigation={popupNavigation}
                     route={popupRoute}
                     embedded
+                    onVideoDeleted={loadFeedData}
                   />
                 </Animated.View>
               ) : null}
