@@ -1,6 +1,7 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { useFirstVisit } from '../../hooks/useFirstVisit';
 import ScreenGradient from '../../components/ScreenGradient';
 
 const appLogo = require('../../../assets/LOGO.png');
@@ -11,6 +12,7 @@ const guestButtonImage = require('../../../assets/init/guest.png');
 export default function WelcomeScreen({ navigation }) {
   const { enterAsGuest } = useAuth();
   const { colors, spacing, typography, textScale } = useAppTheme();
+  const { isFirstVisit, loading, markFirstVisitSeen } = useFirstVisit();
 
   const handleGuest = () => {
     enterAsGuest();
@@ -18,6 +20,18 @@ export default function WelcomeScreen({ navigation }) {
 
   return (
     <ScreenGradient>
+      <Modal visible={!loading && isFirstVisit} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text, fontFamily: typography.families.nougat }]}>Bienvenido a Sotanita</Text>
+            <Text style={[styles.modalMessage, { color: colors.textMuted }]}>Esta es la primera vez que entras desde este dispositivo o navegador. La próxima vez no volverá a mostrarse este mensaje.</Text>
+            <Pressable onPress={markFirstVisitSeen} style={[styles.modalButton, { backgroundColor: colors.primary }]}> 
+              <Text style={[styles.modalButtonText, { color: colors.background }]}>Continuar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <View style={[styles.container, { padding: spacing.xl }]}> 
         <View style={styles.logoBlock}>
           <Image source={appLogo} style={styles.logoImage} resizeMode="contain" />
@@ -100,5 +114,41 @@ const styles = StyleSheet.create({
   guestButtonImage: {
     width: '100%',
     height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 23, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: 24,
+    borderWidth: 2,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    gap: 14,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    fontSize: 28,
+    lineHeight: 32,
+  },
+  modalMessage: {
+    textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  modalButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 999,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
   },
 });

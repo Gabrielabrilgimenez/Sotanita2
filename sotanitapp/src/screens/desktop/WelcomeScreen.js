@@ -1,7 +1,8 @@
-import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { useFirstVisit } from '../../hooks/useFirstVisit';
 
 const loginButtonImage = require('../../../assets/init/login.png');
 const registerButtonImage = require('../../../assets/init/register.png');
@@ -11,6 +12,7 @@ export default function WelcomeScreen({ navigation }) {
   const { enterAsGuest } = useAuth();
   const { width } = useWindowDimensions();
   const { colors, spacing, typography, textScale, darkMode } = useAppTheme();
+  const { isFirstVisit, loading, markFirstVisitSeen } = useFirstVisit();
   const titleFontSize = Math.min(96, Math.max(44, width * 0.065)) * textScale;
   const buttonWidth = Math.min(330, Math.max(220, width * 0.23));
   const backgroundColors = darkMode
@@ -23,6 +25,18 @@ export default function WelcomeScreen({ navigation }) {
 
   return (
     <LinearGradient colors={backgroundColors} style={styles.background}>
+      <Modal visible={!loading && isFirstVisit} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text, fontFamily: typography.families.nougat }]}>Bienvenido a Sotanita</Text>
+            <Text style={[styles.modalMessage, { color: colors.textMuted }]}>Esta es la primera vez que entras desde este dispositivo o navegador. La próxima vez no volverá a mostrarse este mensaje.</Text>
+            <Pressable onPress={markFirstVisitSeen} style={[styles.modalButton, { backgroundColor: colors.primary }]}> 
+              <Text style={[styles.modalButtonText, { color: colors.background }]}>Continuar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <View style={[styles.container, { paddingHorizontal: spacing.xl, paddingVertical: spacing.lg }]}> 
         <Text
           style={[
@@ -111,5 +125,41 @@ const styles = StyleSheet.create({
   subtitle: {
     textAlign: 'center',
     fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 23, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 560,
+    borderRadius: 24,
+    borderWidth: 2,
+    paddingHorizontal: 28,
+    paddingVertical: 30,
+    gap: 16,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  modalMessage: {
+    textAlign: 'center',
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  modalButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 26,
+    paddingVertical: 14,
+    borderRadius: 999,
+  },
+  modalButtonText: {
+    fontSize: 18,
+    fontWeight: '800',
   },
 });
