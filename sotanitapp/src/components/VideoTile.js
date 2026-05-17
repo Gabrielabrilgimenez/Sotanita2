@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from '../utils/media';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -55,13 +55,29 @@ export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
           <Image source={{ uri: mediaUrls[0] }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
         ) : isVideo ? (
           videoThumbnail ? (
-            <Image source={{ uri: videoThumbnail }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+            <Image source={{ uri: videoThumbnail }} style={StyleSheet.absoluteFillObject} resizeMode="stretch" />
+          ) : Platform.OS === 'web' ? (
+            <video
+              src={mediaUrls[0]}
+              muted
+              playsInline
+              preload="metadata"
+              style={styles.webVideo}
+              onLoadedMetadata={(event) => {
+                try {
+                  event.currentTarget.currentTime = 0;
+                  event.currentTarget.pause();
+                } catch (error) {
+                  // Ignore thumbnail load errors to avoid blocking UI.
+                }
+              }}
+            />
           ) : (
             <Video
               ref={videoRef}
               source={{ uri: mediaUrls[0] }}
-              style={StyleSheet.absoluteFillObject}
-              resizeMode={ResizeMode.COVER}
+              style={[StyleSheet.absoluteFillObject, styles.media]}
+              resizeMode={ResizeMode.STRETCH}
               shouldPlay={false}
               isLooping={false}
               isMuted
@@ -104,6 +120,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(34,197,94,0.1)',
+    overflow: 'hidden',
+  },
+  media: {
+    width: '100%',
+    height: '100%',
+  },
+  webVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'fill',
   },
   likesRow: {
     position: 'absolute',

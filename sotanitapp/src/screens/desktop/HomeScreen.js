@@ -65,15 +65,31 @@ function VideoPreviewCard({ video, colors, typography, textScale, onPress }) {
         <View style={styles.mediaFrame}>
         {imagePreview ? (
           <Image source={{ uri: previewUrl }} style={styles.media} resizeMode="cover" />
+        ) : Platform.OS === 'web' ? (
+          <video
+            src={previewUrl}
+            muted
+            playsInline
+            preload="metadata"
+            style={styles.webVideo}
+            onLoadedMetadata={(event) => {
+              try {
+                event.currentTarget.currentTime = 0;
+                event.currentTarget.pause();
+              } catch (error) {
+                // Ignore preview load errors so the feed stays responsive.
+              }
+            }}
+          />
         ) : (
           <>
             <Video
               source={{ uri: previewUrl }}
-              style={styles.media}
+              style={[styles.media, styles.mediaVideo]}
               shouldPlay={false}
               isMuted
               isLooping={false}
-              resizeMode={ResizeMode.COVER}
+              resizeMode={ResizeMode.STRETCH}
             />
             <View style={styles.videoIconOverlay}>
               <Ionicons name="play-circle" size={34} color="#FFFFFFE6" />
@@ -588,6 +604,15 @@ const styles = StyleSheet.create({
   media: {
     width: '100%',
     height: '100%',
+  },
+  mediaVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  webVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'fill',
   },
   videoIconOverlay: {
     position: 'absolute',

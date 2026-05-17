@@ -728,15 +728,25 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
             setCarouselIndex(0);
           }}
         >
-          <Video
-            style={StyleSheet.absoluteFillObject}
-            source={{ uri: activeVideo.url }}
-            resizeMode={ResizeMode.COVER}
-            isLooping
-            shouldPlay
-            isMuted={false}
-            volume={1.0}
-          />
+          {Platform.OS === 'web' ? (
+            <video
+              src={activeVideo.url}
+              autoPlay
+              loop
+              playsInline
+              style={styles.webVideo}
+            />
+          ) : (
+            <Video
+              style={[StyleSheet.absoluteFillObject, styles.videoFill]}
+              source={{ uri: activeVideo.url }}
+              resizeMode={ResizeMode.STRETCH}
+              isLooping
+              shouldPlay
+              isMuted={false}
+              volume={1.0}
+            />
+          )}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
           <View style={styles.infoWrapper}>
             {uploaderCard ? (
@@ -1625,6 +1635,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    backgroundColor: '#000000',
+    overflow: 'hidden',
+  },
+  videoFill: {
+    width: '100%',
+    height: '100%',
+  },
+  webVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'fill',
   },
   embeddedActionColumn: {
     position: 'absolute',
