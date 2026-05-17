@@ -29,6 +29,11 @@
     },
     "plugins": [
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2a78a0e3-61ce-49fa-9fc5-c9d0e53c542d"
+      }
+    }
   }
 }
