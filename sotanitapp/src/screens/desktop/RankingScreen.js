@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import StrokeText from '../components/StrokeText';
+import StrokeText from '../../components/StrokeText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import ScreenGradient from '../components/ScreenGradient';
-import FifaCard from '../components/FifaCard';
-import { formatLikes } from '../utils/format';
-import { getCategories, getWeeklyRankings } from '../api/backend';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import ScreenGradient from '../../components/ScreenGradient';
+import FifaCard from '../../components/FifaCard';
+import { formatLikes } from '../../utils/format';
+import { getCategories, getWeeklyRankings } from '../../api/backend';
 
 export default function RankingScreen({ navigation }) {
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
@@ -19,13 +19,14 @@ export default function RankingScreen({ navigation }) {
     : darkMode
       ? colors.white
       : colors.primary;
-  const [categories, setCategories] = useState(['Todos']);
-  const [category, setCategory] = useState('Todos');
+  const [categories, setCategories] = useState(['Ranking General']);
+  const [category, setCategory] = useState('Ranking General');
   const [showPicker, setShowPicker] = useState(false);
-  const [activeTab, setActiveTab] = useState('previous'); // 'previous' | 'live'
   const [loading, setLoading] = useState(true);
-  const [rankingData, setRankingData] = useState({ general: [], selectedRanking: [], byCategory: {} });
-  const [weekLabel, setWeekLabel] = useState('');
+  const [rankingData, setRankingData] = useState({
+    previous: { items: [], weekLabel: '' },
+    current: { items: [], weekLabel: '' },
+  });
   const scrollRef = useRef(null);
 
   useResetScrollOnFocus(scrollRef);
@@ -33,39 +34,51 @@ export default function RankingScreen({ navigation }) {
   const loadCategories = useCallback(async () => {
     try {
       const data = await getCategories();
-      const normalized = ['Todos', ...new Set((Array.isArray(data) ? data : []).map((value) => String(value || '').trim()).filter(Boolean))];
+      const normalized = ['Ranking General', ...new Set((Array.isArray(data) ? data : []).map((value) => String(value || '').trim()).filter(Boolean))];
       setCategories(normalized);
       if (!normalized.includes(category)) {
-        setCategory('Todos');
+        setCategory('Ranking General');
       }
     } catch (error) {
       console.error('Error cargando categorias del ranking:', error);
-      setCategories(['Todos']);
+      setCategories(['Ranking General']);
     }
   }, [category]);
 
-  const loadRanking = useCallback(async (selectedCategory = category, live = activeTab === 'live') => {
+  const loadRanking = useCallback(async (selectedCategory = category) => {
     setLoading(true);
     try {
-      const data = await getWeeklyRankings(selectedCategory, live);
+      const [previousData, currentData] = await Promise.all([
+        getWeeklyRankings(selectedCategory, false),
+        getWeeklyRankings(selectedCategory, true),
+      ]);
+
+      const buildSectionData = (data) => {
+        const items = selectedCategory === 'Ranking General'
+          ? (Array.isArray(data?.general) ? data.general : [])
+          : (Array.isArray(data?.selectedRanking) ? data.selectedRanking : []);
+
+        if (data?.week?.start && data?.week?.end) {
+          const start = new Date(data.week.start);
+          const end = new Date(data.week.end);
+          const startLabel = start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+          const endLabel = end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+          return { items, weekLabel: `${startLabel} - ${endLabel}` };
+        }
+
+        return { items, weekLabel: '' };
+      };
+
       setRankingData({
-        general: Array.isArray(data?.general) ? data.general : [],
-        selectedRanking: Array.isArray(data?.selectedRanking) ? data.selectedRanking : [],
-        byCategory: data?.byCategory || {},
+        previous: buildSectionData(previousData),
+        current: buildSectionData(currentData),
       });
-      if (data?.week?.start && data?.week?.end) {
-        const start = new Date(data.week.start);
-        const end = new Date(data.week.end);
-        const startLabel = start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-        const endLabel = end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-        setWeekLabel(`${startLabel} - ${endLabel}`);
-      } else {
-        setWeekLabel('');
-      }
     } catch (error) {
       console.error('Error cargando ranking semanal:', error);
-      setRankingData({ general: [], selectedRanking: [], byCategory: {} });
-      setWeekLabel('');
+      setRankingData({
+        previous: { items: [], weekLabel: '' },
+        current: { items: [], weekLabel: '' },
+      });
     } finally {
       setLoading(false);
     }
@@ -76,29 +89,78 @@ export default function RankingScreen({ navigation }) {
   }, [loadCategories]);
 
   useEffect(() => {
-    loadRanking(category, activeTab === 'live');
+    loadRanking(category);
   }, [category, loadRanking]);
-
-  useEffect(() => {
-    loadRanking(category, activeTab === 'live');
-  }, [activeTab]);
 
   useFocusEffect(
     useCallback(() => {
       loadCategories();
-      loadRanking(category, activeTab === 'live');
+      loadRanking(category);
     }, [category, loadCategories, loadRanking])
   );
 
-  const activeRanking = useMemo(() => {
-    if (category === 'Todos') {
-      return rankingData.general;
-    }
-    return rankingData.selectedRanking;
-  }, [category, rankingData.general, rankingData.selectedRanking]);
+  const rankingSections = useMemo(() => ([
+    {
+      key: 'previous',
+      title: 'Ranking de Ultimos Ganadores',
+      subtitle: `Resultados de la semana anterior${rankingData.previous.weekLabel ? ` · ${rankingData.previous.weekLabel}` : ''}`,
+      items: rankingData.previous.items,
+      backgroundColor: highContrast
+        ? `${colors.primary}18`
+        : darkMode
+          ? `${colors.primary}12`
+          : `${colors.primary}10`,
+    },
+    {
+      key: 'current',
+      title: 'Ranking de la Semana Actual',
+      subtitle: `Resultados de la semana en curso${rankingData.current.weekLabel ? ` · ${rankingData.current.weekLabel}` : ''}`,
+      items: rankingData.current.items,
+      backgroundColor: highContrast
+        ? `${colors.text}10`
+        : darkMode
+          ? `${colors.surfaceElevated}`
+          : `${colors.secondary}14`,
+    },
+  ]), [colors, darkMode, highContrast, rankingData.current.items, rankingData.current.weekLabel, rankingData.previous.items, rankingData.previous.weekLabel]);
 
-  const topThree = activeRanking.slice(0, 3);
-  const hasResults = topThree.length > 0;
+  const renderRankingSection = (section) => {
+    const topThree = section.items.slice(0, 3);
+    const hasResults = topThree.length > 0;
+
+    return (
+      <View key={section.key} style={[styles.rankingPanel, { backgroundColor: section.backgroundColor, borderColor: colors.border }]}> 
+        <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.xl * textScale, fontFamily: typography.families.nougat, textAlign: 'center' }}>
+          {section.title}
+        </Text>
+        <Text style={{ color: colors.textMuted, marginTop: spacing.xs, textAlign: 'center' }}>
+          {section.subtitle}
+        </Text>
+
+        {hasResults ? (
+          <>
+            <View style={{ paddingTop: 18, alignItems: 'center' }}>
+              {renderPodiumCard(topThree[0], 1, 'large', colors.primary)}
+            </View>
+
+            <View style={[styles.bottomPodium, { paddingHorizontal: 0 }]}> 
+              {renderPodiumCard(topThree[1], 2, 'medium', '#9CA3AF')}
+              {renderPodiumCard(topThree[2], 3, 'medium', '#B45309')}
+            </View>
+          </>
+        ) : (
+          <View style={styles.emptySectionWrap}>
+            <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, textAlign: 'center' }}>
+              Todavía no hay suficiente actividad para mostrar este ranking.
+            </Text>
+            <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
+              Cuando haya videos, likes y comentarios aparecerán aquí.
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const renderPodiumCard = (item, rank, size, accentColor) => {
     if (!item) {
@@ -177,47 +239,14 @@ export default function RankingScreen({ navigation }) {
               <Ionicons name="chevron-down" size={20} color={categoryTextColor} />
             </Pressable>
           </View>
-
-          <View style={styles.tabRow}>
-            <Pressable onPress={() => setActiveTab('previous')} style={[styles.tabToggle, activeTab === 'previous' && { backgroundColor: `${colors.primary}22` }]}>
-              <Text style={{ color: activeTab === 'previous' ? colors.primary : colors.text, fontWeight: typography.weights.bold, textAlign: 'center' }}>ULTIMOS GANADORES</Text>
-            </Pressable>
-            <Pressable onPress={() => setActiveTab('live')} style={[styles.tabToggle, activeTab === 'live' && { backgroundColor: `${colors.primary}22` }]}>
-              <Text style={{ color: activeTab === 'live' ? colors.primary : colors.text, fontWeight: typography.weights.bold, textAlign: 'center' }}>RANKING EN VIVO</Text>
-            </Pressable>
-          </View>
         </View>
-
-        <View style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: typography.weights.bold, fontSize: typography.sizes.xxl * textScale, fontFamily: typography.families.nougat }}>
-            Ranking Semanal
-          </Text>
-          <Text style={{ color: colors.textMuted, marginTop: spacing.xs }}>Top 3 de la semana {weekLabel ? `· ${weekLabel}` : ''}</Text>
-        </View>
-
         {loading ? (
           <View style={{ paddingVertical: 60, alignItems: 'center' }}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
-        ) : hasResults ? (
-          <>
-                <View style={{ paddingTop: 22, alignItems: 'center' }}>
-                  {renderPodiumCard(topThree[0], 1, 'large', colors.primary)}
-                </View>
-
-            <View style={[styles.bottomPodium, { paddingHorizontal: spacing.md }]}> 
-              {renderPodiumCard(topThree[1], 2, 'medium', '#9CA3AF')}
-              {renderPodiumCard(topThree[2], 3, 'medium', '#B45309')}
-            </View>
-          </>
         ) : (
-          <View style={{ paddingHorizontal: spacing.xl, paddingTop: 56, alignItems: 'center', gap: spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: typography.sizes.lg * textScale, fontWeight: typography.weights.bold, textAlign: 'center' }}>
-              Todavía no hay suficiente actividad para mostrar el ranking.
-            </Text>
-            <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
-              Cuando haya videos, likes y comentarios de esta semana aparecerán aquí.
-            </Text>
+          <View style={[styles.desktopRankingGrid, { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.lg }]}> 
+            {rankingSections.map(renderRankingSection)}
           </View>
         )}
       </ScrollView>
@@ -249,43 +278,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     alignItems: 'center',
   },
-  categoryBtn: {
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-  },
   categorySelectWrap: { borderWidth: 0, borderRadius: 18, minHeight: 52, justifyContent: 'center', backgroundColor: 'transparent', width: '100%' },
   categorySelectButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8 },
-  categoryMenu: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
-  categoryMenuItem: { paddingVertical: 14, paddingHorizontal: 16 },
-  tabRow: {
-    marginTop: 12,
+  desktopRankingGrid: {
     flexDirection: 'row',
-    gap: 8,
-    width: '100%',
-  },
-  tabToggle: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-  rankBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: -14,
-    zIndex: 2,
+    alignItems: 'stretch',
   },
   bottomPodium: {
     marginTop: 16,
@@ -293,6 +290,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 20,
     alignItems: 'flex-start',
+  },
+  rankingPanel: {
+    flex: 1,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    minHeight: 640,
+  },
+  emptySectionWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingTop: 24,
   },
   emptyCard: {
     width: 100,

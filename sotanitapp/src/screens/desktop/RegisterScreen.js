@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Dimensions } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Dimensions, useWindowDimensions } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getPositions, getTeamsListWithEscudo, isUsernameAvailable } from '../api/backend';
-import { emailRegex } from '../utils/format';
-import AppButton from '../components/AppButton';
-import AppInput from '../components/AppInput';
-import ScreenGradient from '../components/ScreenGradient';
-import Header from '../components/Header';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import { getPositions, getTeamsListWithEscudo, isUsernameAvailable } from '../../api/backend';
+import { emailRegex } from '../../utils/format';
+import AppButton from '../../components/AppButton';
+import AppInput from '../../components/AppInput';
+import Header from '../../components/Header';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 const REMOVE_BG_API_KEY = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
 
@@ -53,7 +53,11 @@ function passwordStrength(password) {
 
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
+  const { width } = useWindowDimensions();
   const { colors, spacing, typography, textScale, darkMode, highContrast } = useAppTheme();
+  const backgroundColors = darkMode
+    ? ['#020617', '#051649', '#020B2F']
+    : ['#F6FAFF', '#DEE9FF', '#CBDBFF'];
 
   const [form, setForm] = useState({
     username: '',
@@ -311,15 +315,17 @@ export default function RegisterScreen({ navigation }) {
   };
 
   return (
-    <ScreenGradient>
-      <Header
-        title="Crear cuenta"
-        titleSize="xxl"
-        titleScale={1.3}
-        titleStyle={{ transform: [{ scaleY: 1.12 }], letterSpacing: -0.8 }}
-        onBack={() => navigation.goBack()}
-      />
-      <ScrollView ref={scrollRef} contentContainerStyle={[styles.scrollContent, { padding: spacing.xl }]}>
+    <LinearGradient colors={backgroundColors} style={styles.background}>
+      <View style={[styles.stage, { padding: spacing.lg }]}> 
+        <View style={[styles.formContainer, { width: width * 0.6, backgroundColor: colors.overlay }]}> 
+          <Header
+            title="Crear cuenta"
+            titleSize="xxl"
+            titleScale={1.3}
+            titleStyle={{ transform: [{ scaleY: 1.12 }], letterSpacing: -0.8 }}
+            onBack={() => navigation.goBack()}
+          />
+          <ScrollView ref={scrollRef} contentContainerStyle={[styles.scrollContent, { padding: spacing.xl }]}>
         <Pressable
           onPress={handleSelectPhoto}
           disabled={photoLoading}
@@ -526,7 +532,9 @@ export default function RegisterScreen({ navigation }) {
             </Text>
           </Pressable>
         </View>
-      </ScrollView>
+          </ScrollView>
+        </View>
+      </View>
 
       <Modal
         visible={showPositionPicker}
@@ -535,10 +543,10 @@ export default function RegisterScreen({ navigation }) {
         onRequestClose={() => setShowPositionPicker(false)}
       >
         <Pressable
-          style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
+          style={[styles.selectOverlay, { backgroundColor: colors.overlay, alignItems: 'center' }]}
           onPress={() => setShowPositionPicker(false)}
         >
-          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+          <View style={[styles.selectMenu, { backgroundColor: colors.surface, borderColor: colors.border, width: width * 0.6 }]}> 
             <Pressable
               onPress={() => {
                 setForm((prev) => ({ ...prev, position: '' }));
@@ -592,9 +600,9 @@ export default function RegisterScreen({ navigation }) {
           style={[styles.selectOverlay, { backgroundColor: colors.overlay }]}
           onPress={() => setShowTeamPicker(false)}
         >
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 0 }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 0 }}>
             <FlatList
-              style={{ width: '100%' }}
+              style={{ width: width * 0.9 }}
               data={fullTeamList}
               renderItem={({ item }) => (
                 <Pressable
@@ -603,8 +611,8 @@ export default function RegisterScreen({ navigation }) {
                     setShowTeamPicker(false);
                   }}
                   style={{
-                    width: Dimensions.get('window').width / 2,
-                    height: Dimensions.get('window').height / 3,
+                    width: ((width * 0.9) / 3 - 8) * 0.7,
+                    aspectRatio: 1,
                     padding: 8,
                   }}
                 >
@@ -659,20 +667,33 @@ export default function RegisterScreen({ navigation }) {
                 </Pressable>
               )}
               keyExtractor={(item, index) => item.id || index.toString()}
-              horizontal
-              contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 24 }}
+              numColumns={3}
+              contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
               scrollEventThrottle={16}
-              showsHorizontalScrollIndicator={true}
+              showsVerticalScrollIndicator={true}
             />
           </View>
         </Pressable>
       </Modal>
       <LoadingOverlay visible={registering || photoLoading} />
-    </ScreenGradient>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  background: {
+    flex: 1,
+  },
+  stage: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formContainer: {
+    height: '88%',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
   scrollContent: {
     paddingBottom: 32,
   },

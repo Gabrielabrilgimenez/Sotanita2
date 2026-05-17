@@ -18,14 +18,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from '../utils/media';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import FifaCard from '../components/FifaCard';
-import AppButton from '../components/AppButton';
-import LoadingOverlay from '../components/LoadingOverlay';
-import { deleteVideo, getAllVideos } from '../api/backend';
-import { formatLikes } from '../utils/format';
+import { Video, ResizeMode } from '../../utils/media';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import FifaCard from '../../components/FifaCard';
+import AppButton from '../../components/AppButton';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import { deleteVideo, getAllVideos } from '../../api/backend';
+import { formatLikes } from '../../utils/format';
 
 const isLikelyVideoUrl = (url) => {
   const value = String(url || '').toLowerCase();

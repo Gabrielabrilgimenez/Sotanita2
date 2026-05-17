@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
-import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../hooks/useAppTheme';
-import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../api/backend';
-import LoadingOverlay from '../components/LoadingOverlay';
-import { Audio, ResizeMode, Video } from '../utils/media';
+import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../../api/backend';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import { Audio, ResizeMode, Video } from '../../utils/media';
 import { Ionicons } from '@expo/vector-icons';
 
 const isProbablyVideoUrl = (value) => {
@@ -492,7 +492,7 @@ export default function ForoEquipo({ route, navigation }) {
                       <Image source={{ uri: item.share.thumbnailUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                     )
                   ) : (
-                    <Image source={require('../../assets/perfil/teamChange_light.png')} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    <Image source={require('../../../assets/perfil/teamChange_light.png')} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   )}
                   <View style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.14)' }}>
                     <Ionicons
@@ -547,7 +547,7 @@ export default function ForoEquipo({ route, navigation }) {
         {team ? (
           <View style={styles.headerInner}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1, marginRight: 8 }}>
-              <Image source={team.escudoUrl ? { uri: team.escudoUrl } : require('../../assets/perfil/teamChange_light.png')} style={styles.crest} />
+              <Image source={team.escudoUrl ? { uri: team.escudoUrl } : require('../../../assets/perfil/teamChange_light.png')} style={styles.crest} />
               <View style={{ marginLeft: 12, flex: 1 }}>
                 {/* Fila 1: Nombre del foro */}
                 <Text style={{ fontFamily: typography.families.nougat, fontSize: 18 * textScale, color: colors.text, fontWeight: '700' }}>

@@ -6,15 +6,15 @@ import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Audio, ResizeMode, Video } from '../utils/media';
-import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, deleteVideo, getTeamById, postForumMessage } from '../api/backend';
-import { useAuth } from '../context/AuthContext';
-import { formatLikes } from '../utils/format';
-import FifaCard from '../components/FifaCard';
-import LoadingOverlay from '../components/LoadingOverlay';
-import AppButton from '../components/AppButton';
-import StrokeText from '../components/StrokeText';
+import { Audio, ResizeMode, Video } from '../../utils/media';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import { getAllVideos, getVideos, getCategories, likeVideo, unlikeVideo, getVideoComments, postVideoComment, uploadCommentAudio, deleteVideoComment, deleteVideo, getTeamById, postForumMessage } from '../../api/backend';
+import { useAuth } from '../../context/AuthContext';
+import { formatLikes } from '../../utils/format';
+import FifaCard from '../../components/FifaCard';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import AppButton from '../../components/AppButton';
+import StrokeText from '../../components/StrokeText';
 
 const isNonMobileDevice = () => {
   if (Platform.OS !== 'web') {
@@ -139,7 +139,7 @@ const FeedVideoItem = ({
   const videoRef = useRef(null);
   const lastTapRef = useRef(0);
   const tapFeedbackAnim = useRef(new Animated.Value(0)).current;
-  const tapFeedbackSource = require('../../assets/like.gif');
+  const tapFeedbackSource = require('../../../assets/like.gif');
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -1814,7 +1814,7 @@ export default function HomeScreen({ navigation, route }) {
 
               <Pressable onPress={handleShareToFanZone} style={[styles.shareRectButton, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}> 
                 <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Image source={fanZoneShieldUri ? { uri: fanZoneShieldUri } : require('../../assets/perfil/teamChange_light.png')} style={{ width: 56, height: 56, borderRadius: 12 }} resizeMode="contain" />
+                  <Image source={fanZoneShieldUri ? { uri: fanZoneShieldUri } : require('../../../assets/perfil/teamChange_light.png')} style={{ width: 56, height: 56, borderRadius: 12 }} resizeMode="contain" />
                   <Text style={{ color: colors.text, fontWeight: '700', textAlign: 'center' }}>Compartir en Fan Zone</Text>
                 </View>
               </Pressable>

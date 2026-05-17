@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAppTheme } from '../hooks/useAppTheme';
-import { useAuth } from '../context/AuthContext';
-import useResetScrollOnFocus from '../hooks/useResetScrollOnFocus';
-import { getAllNotifications, markNotificationsRead } from '../api/backend';
-import ScreenGradient from '../components/ScreenGradient';
-import NotificationItem from '../components/NotificationItem';
+import { useAppTheme } from '../../hooks/useAppTheme';
+import { useAuth } from '../../context/AuthContext';
+import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
+import { getAllNotifications, markNotificationsRead } from '../../api/backend';
+import ScreenGradient from '../../components/ScreenGradient';
+import NotificationItem from '../../components/NotificationItem';
 
 function formatRelativeTime(value) {
   const date = value ? new Date(value) : null;
