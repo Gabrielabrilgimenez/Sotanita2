@@ -48,16 +48,69 @@ function DesktopNavBar({ navigation }) {
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Hover states for nav items
+  const [hoverItem, setHoverItem] = useState(null);
+  const homeScale = useRef(new Animated.Value(1)).current;
+  const rankingScale = useRef(new Animated.Value(1)).current;
+  const profileScale = useRef(new Animated.Value(1)).current;
+  const uploadScale = useRef(new Animated.Value(1)).current;
+  const notificationsScale = useRef(new Animated.Value(1)).current;
+  const settingsScale = useRef(new Animated.Value(1)).current;
+  
   const notificationsAnim = useRef(new Animated.Value(0)).current;
   const socketRef = useRef(null);
+
+  // Handle hover animations
+  useEffect(() => {
+    const animateScale = (scaleAnim, isHovered) => {
+      Animated.timing(scaleAnim, {
+        toValue: isHovered ? 1.12 : 1,
+        duration: 400,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const animateIconScale = (scaleAnim, isHovered) => {
+      Animated.timing(scaleAnim, {
+        toValue: isHovered ? 1.2 : 1,
+        duration: 400,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    if (hoverItem === 'home') animateScale(homeScale, true);
+    else animateScale(homeScale, false);
+
+    if (hoverItem === 'ranking') animateScale(rankingScale, true);
+    else animateScale(rankingScale, false);
+
+    if (hoverItem === 'profile') animateScale(profileScale, true);
+    else animateScale(profileScale, false);
+
+    if (hoverItem === 'upload') animateScale(uploadScale, true);
+    else animateScale(uploadScale, false);
+
+    if (hoverItem === 'notifications') animateIconScale(notificationsScale, true);
+    else animateIconScale(notificationsScale, false);
+
+    if (hoverItem === 'settings') animateIconScale(settingsScale, true);
+    else animateIconScale(settingsScale, false);
+  }, [hoverItem, homeScale, rankingScale, profileScale, uploadScale, notificationsScale, settingsScale]);
 
   const profileCloseButtonSource = highContrast
     ? closeButtonContrast
     : darkMode
       ? closeButtonDark
       : closeButtonLight;
-  const navTextColor = darkMode ? colors.white : colors.primary;
-  const navIconColor = darkMode ? colors.white : colors.primary;
+  
+  // Navigation bar colors - light mode: green background, white text
+  const navBarBackground = darkMode ? colors.surface : colors.primary;
+  const navTextColor = darkMode ? colors.white : colors.white;
+  const navIconColor = darkMode ? colors.white : colors.white;
+  const navHoverColor = darkMode ? colors.primary : '#1e40af'; // Verde (oscuro) -> Azul oscuro (claro)
+  const navHoverColorContrast = highContrast ? '#22c55e' : navHoverColor;
 
   const navigateToMainTab = useCallback((screenName) => {
     setShowNotifications(false);
@@ -216,136 +269,187 @@ function DesktopNavBar({ navigation }) {
 
   return (
     <View style={styles.navBarContainer}>
-      <View style={[styles.navBar, { backgroundColor: colors.surface, height: DESKTOP_NAV_HEIGHT, paddingHorizontal: spacing.lg }]}>
+      <View style={[styles.navBar, { backgroundColor: navBarBackground, height: DESKTOP_NAV_HEIGHT, paddingHorizontal: spacing.lg }]}>
         <View style={[styles.navContent, { gap: navItemGap * 1.35 }]}>
           {/* INICIO */}
           <Pressable
             onPress={() => navigateToMainTab('Home')}
+            onMouseEnter={() => setHoverItem('home')}
+            onMouseLeave={() => setHoverItem(null)}
             style={({ pressed }) => [
               styles.navItem,
-              { opacity: pressed ? 0.7 : 1 },
+              { 
+                opacity: pressed ? 0.7 : 1,
+              },
             ]}
           >
-            <Text
+            <Animated.Text
               style={{
-                color: navTextColor,
+                color: hoverItem === 'home' ? (highContrast ? '#22c55e' : (darkMode ? colors.primary : '#1e40af')) : navTextColor,
                 fontSize: typography.sizes.xl * textScale * 1.08,
                 fontWeight: typography.weights.bold,
                 fontFamily: typography.families.nougat,
+                transform: [{ scale: homeScale }],
               }}
             >
               INICIO
-            </Text>
+            </Animated.Text>
           </Pressable>
 
           {/* RANKING */}
           <Pressable
             onPress={() => navigateToMainTab('Ranking')}
+            onMouseEnter={() => setHoverItem('ranking')}
+            onMouseLeave={() => setHoverItem(null)}
             style={({ pressed }) => [
               styles.navItem,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <Text
-              style={{
-                color: navTextColor,
-                fontSize: typography.sizes.xl * textScale * 1.08,
-                fontWeight: typography.weights.bold,
-                fontFamily: typography.families.nougat,
-              }}
-            >
-              RANKING
-            </Text>
-          </Pressable>
-
-          {/* PROFILE CARD (CENTER) */}
-          <Pressable
-            onPress={() => navigateToMainTab('Profile')}
-            style={({ pressed }) => [
-              styles.profileCardWrapper,
-              {
-                opacity: pressed ? 0.8 : 1,
-                width: cardSize.width,
-                height: cardSize.height,
+              { 
+                opacity: pressed ? 0.7 : 1,
               },
             ]}
           >
-            <FifaCard
-              username={profilePreview.username}
-              team={profilePreview.team}
-              position={profilePreview.position}
-              rating={profilePreview.rating}
-              photoUrl={profilePreview.photoUrl}
-              backgroundUrl={profilePreview.backgroundUrl}
-              frameUrl={profilePreview.frameUrl}
-              frameId={profilePreview.frameId}
-              size="small"
-            />
+            <Animated.Text
+              style={{
+                color: hoverItem === 'ranking' ? (highContrast ? '#22c55e' : (darkMode ? colors.primary : '#1e40af')) : navTextColor,
+                fontSize: typography.sizes.xl * textScale * 1.08,
+                fontWeight: typography.weights.bold,
+                fontFamily: typography.families.nougat,
+                transform: [{ scale: rankingScale }],
+              }}
+            >
+              RANKING
+            </Animated.Text>
           </Pressable>
+
+          {/* PROFILE CARD (CENTER) */}
+          <Animated.View
+            style={{
+              transform: [{ scale: profileScale }],
+            }}
+          >
+            <Pressable
+              onPress={() => navigateToMainTab('Profile')}
+              onMouseEnter={() => setHoverItem('profile')}
+              onMouseLeave={() => setHoverItem(null)}
+              style={({ pressed }) => [
+                styles.profileCardWrapper,
+                {
+                  opacity: pressed ? 0.8 : 1,
+                  width: cardSize.width,
+                  height: cardSize.height,
+                },
+              ]}
+            >
+              <FifaCard
+                username={profilePreview.username}
+                team={profilePreview.team}
+                position={profilePreview.position}
+                rating={profilePreview.rating}
+                photoUrl={profilePreview.photoUrl}
+                backgroundUrl={profilePreview.backgroundUrl}
+                frameUrl={profilePreview.frameUrl}
+                frameId={profilePreview.frameId}
+                size="small"
+              />
+            </Pressable>
+          </Animated.View>
 
           {/* PUBLICAR */}
           <Pressable
             onPress={() => navigateToMainTab('Upload')}
+            onMouseEnter={() => setHoverItem('upload')}
+            onMouseLeave={() => setHoverItem(null)}
             style={({ pressed }) => [
               styles.navItem,
-              { opacity: pressed ? 0.7 : 1 },
+              { 
+                opacity: pressed ? 0.7 : 1,
+              },
             ]}
           >
-            <Text
+            <Animated.Text
               style={{
-                color: navTextColor,
+                color: hoverItem === 'upload' ? (highContrast ? '#22c55e' : (darkMode ? colors.primary : '#1e40af')) : navTextColor,
                 fontSize: typography.sizes.xl * textScale * 1.08,
                 fontWeight: typography.weights.bold,
                 fontFamily: typography.families.nougat,
+                transform: [{ scale: uploadScale }],
               }}
             >
               PUBLICAR
-            </Text>
+            </Animated.Text>
           </Pressable>
 
           {/* NOTIFICACIONES + SETTINGS */}
           <View style={[styles.navItem, { flexDirection: 'row', gap: spacing.md }]}>
             {/* NOTIFICACIONES */}
-            <Pressable
-              onPress={() => setShowNotifications(!showNotifications)}
-              style={({ pressed }) => [
-                styles.iconButton,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
+            <Animated.View
+              style={{
+                transform: [{ scale: notificationsScale }],
+              }}
             >
-              <Ionicons name="notifications" size={24} color={navIconColor} />
-              {unreadCount > 0 && (
-                <View
-                  style={[
-                    styles.badge,
-                    { backgroundColor: colors.danger },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: colors.white,
-                      fontSize: typography.sizes.xs * textScale,
-                      fontWeight: typography.weights.bold,
-                      textAlign: 'center',
-                    }}
-                    numberOfLines={1}
+              <Pressable
+                onPress={() => setShowNotifications(!showNotifications)}
+                onMouseEnter={() => setHoverItem('notifications')}
+                onMouseLeave={() => setHoverItem(null)}
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  { 
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Ionicons 
+                  name="notifications" 
+                  size={24} 
+                  color={hoverItem === 'notifications' ? (highContrast ? '#22c55e' : (darkMode ? colors.primary : '#1e40af')) : navIconColor}
+                />
+                {unreadCount > 0 && (
+                  <View
+                    style={[
+                      styles.badge,
+                      { backgroundColor: colors.danger },
+                    ]}
                   >
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
+                    <Text
+                      style={{
+                        color: colors.white,
+                        fontSize: typography.sizes.xs * textScale,
+                        fontWeight: typography.weights.bold,
+                        textAlign: 'center',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            </Animated.View>
 
             {/* SETTINGS */}
-            <Pressable
-              onPress={() => navigation.navigate('Settings')}
-              style={({ pressed }) => [
-                styles.iconButton,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
+            <Animated.View
+              style={{
+                transform: [{ scale: settingsScale }],
+              }}
             >
-              <Ionicons name="settings" size={24} color={navIconColor} />
-            </Pressable>
+              <Pressable
+                onPress={() => navigation.navigate('Settings')}
+                onMouseEnter={() => setHoverItem('settings')}
+                onMouseLeave={() => setHoverItem(null)}
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  { 
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Ionicons 
+                  name="settings" 
+                  size={24} 
+                  color={hoverItem === 'settings' ? (highContrast ? '#22c55e' : (darkMode ? colors.primary : '#1e40af')) : navIconColor}
+                />
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
       </View>

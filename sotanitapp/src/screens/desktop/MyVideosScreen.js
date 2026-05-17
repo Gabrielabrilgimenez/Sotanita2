@@ -1020,9 +1020,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
                       color={colors.text}
                     />
                     <Text style={{ color: colors.text, marginLeft: 10, fontWeight: '700' }}>
-                      {activeAudioId === item.id
-                        ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
-                        : formatTime(item.audioDurationMs || 0)}
+                      {activeAudioId === item.id ? formatTime(audioPositionMs) : '0:00'}
                     </Text>
                   </Pressable>
                 ) : null}

@@ -504,8 +504,8 @@ export default function ForoEquipo({ route, navigation }) {
                 </View>
               </Pressable>
             ) : item.type === 'audio' ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Pressable onPress={() => handleToggleAudio(item)} style={{ marginRight: 12 }}>
+              <View style={{ flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: 12 }}>
+                <Pressable onPress={() => handleToggleAudio(item)}>
                   <View style={{
                     width: 64 * (textScale || 1),
                     height: 64 * (textScale || 1),
@@ -523,9 +523,7 @@ export default function ForoEquipo({ route, navigation }) {
                 </Pressable>
 
                 <Text style={{ color: isMine ? colors.white : colors.text, fontSize: typography.sizes.lg * (textScale || 1), fontWeight: '700' }}>
-                  {activeAudioId === item.id
-                    ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
-                    : formatTime(item.audioDurationMs || item.audio_duration_ms || 0)}
+                  {activeAudioId === item.id ? formatTime(audioPositionMs) : '0:00'}
                 </Text>
               </View>
             ) : (

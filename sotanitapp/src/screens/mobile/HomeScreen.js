@@ -141,6 +141,8 @@ const FeedVideoItem = ({
   const lastTapRef = useRef(0);
   const tapFeedbackAnim = useRef(new Animated.Value(0)).current;
   const tapFeedbackSource = require('../../../assets/like.gif');
+  const screenWidth = Dimensions.get('window').width;
+  const gifMaxSize = Math.round(screenWidth * 0.65);
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -156,7 +158,7 @@ const FeedVideoItem = ({
       tapFeedbackAnim.setValue(0);
       Animated.sequence([
         Animated.timing(tapFeedbackAnim, {
-          toValue: 1,
+          toValue: 0.7,
           duration: 140,
           useNativeDriver: true,
         }),
@@ -254,8 +256,8 @@ const FeedVideoItem = ({
           },
         ]}
       >
-        <View style={styles.tapFeedbackBubble}>
-          <Image source={tapFeedbackSource} style={styles.tapFeedbackGif} resizeMode="contain" />
+        <View style={[styles.tapFeedbackBubble, { width: gifMaxSize, height: gifMaxSize, borderRadius: gifMaxSize / 2 }]}>
+          <Image source={tapFeedbackSource} style={[styles.tapFeedbackGif, { width: gifMaxSize * 0.89, height: gifMaxSize * 0.89 }]} resizeMode="contain" />
         </View>
       </Animated.View>
       <LinearGradient
@@ -1674,9 +1676,7 @@ export default function HomeScreen({ navigation, route }) {
                             </View>
 
                             <Text style={{ color: colors.white, marginLeft: 16, fontSize: typography.sizes.lg * textScale, fontWeight: '700' }}>
-                              {activeAudioId === comment.id
-                                ? `${formatTime(audioPositionMs)} / ${formatTime(audioDurationMs)}`
-                                : formatTime(comment.audioDurationMs || comment.audio_duration_ms || comment.audioDuration || 0)}
+                              {activeAudioId === comment.id ? formatTime(audioPositionMs) : '0:00'}
                             </Text>
                           </Pressable>
                         </View>

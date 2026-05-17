@@ -1,8 +1,9 @@
-import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, Animated, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { useFirstVisit } from '../../hooks/useFirstVisit';
+import { useRef, useState, useEffect } from 'react';
 
 const loginButtonImage = require('../../../assets/init/login.png');
 const registerButtonImage = require('../../../assets/init/register.png');
@@ -13,6 +14,34 @@ export default function WelcomeScreen({ navigation }) {
   const { width } = useWindowDimensions();
   const { colors, spacing, typography, textScale, darkMode } = useAppTheme();
   const { isFirstVisit, loading, markFirstVisitSeen } = useFirstVisit();
+  const [hoverButton, setHoverButton] = useState(null);
+  
+  // Animated scales for buttons
+  const loginScale = useRef(new Animated.Value(1)).current;
+  const registerScale = useRef(new Animated.Value(1)).current;
+  const guestScale = useRef(new Animated.Value(1)).current;
+
+  // Handle button hover animations
+  useEffect(() => {
+    const animateButtonScale = (scaleAnim, isHovered) => {
+      Animated.timing(scaleAnim, {
+        toValue: isHovered ? 1.08 : 1,
+        duration: 400,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    if (hoverButton === 'login') animateButtonScale(loginScale, true);
+    else animateButtonScale(loginScale, false);
+
+    if (hoverButton === 'register') animateButtonScale(registerScale, true);
+    else animateButtonScale(registerScale, false);
+
+    if (hoverButton === 'guest') animateButtonScale(guestScale, true);
+    else animateButtonScale(guestScale, false);
+  }, [hoverButton, loginScale, registerScale, guestScale]);
+
   const titleFontSize = Math.min(96, Math.max(44, width * 0.065)) * textScale;
   const buttonWidth = Math.min(330, Math.max(220, width * 0.23));
   const backgroundColors = darkMode
@@ -56,17 +85,53 @@ export default function WelcomeScreen({ navigation }) {
         <View style={[styles.divider, { backgroundColor: colors.primary, width: width * 0.7 }]} />
 
         <View style={styles.buttonsRow}>
-          <Pressable onPress={() => navigation.navigate('Login')} style={[styles.imageButton, { width: buttonWidth }]}>
-            <Image source={loginButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
-          </Pressable>
+          <Animated.View 
+            style={{ 
+              width: buttonWidth,
+              transform: [{ scale: loginScale }],
+            }}
+          >
+            <Pressable 
+              onPress={() => navigation.navigate('Login')} 
+              onMouseEnter={() => setHoverButton('login')}
+              onMouseLeave={() => setHoverButton(null)}
+              style={styles.imageButton}
+            >
+              <Image source={loginButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
+            </Pressable>
+          </Animated.View>
 
-          <Pressable onPress={() => navigation.navigate('Register')} style={[styles.imageButton, { width: buttonWidth }]}>
-            <Image source={registerButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
-          </Pressable>
+          <Animated.View 
+            style={{ 
+              width: buttonWidth,
+              transform: [{ scale: registerScale }],
+            }}
+          >
+            <Pressable 
+              onPress={() => navigation.navigate('Register')} 
+              onMouseEnter={() => setHoverButton('register')}
+              onMouseLeave={() => setHoverButton(null)}
+              style={styles.imageButton}
+            >
+              <Image source={registerButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
+            </Pressable>
+          </Animated.View>
 
-          <Pressable onPress={handleGuest} style={[styles.imageButton, { width: buttonWidth }]}>
-            <Image source={guestButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
-          </Pressable>
+          <Animated.View 
+            style={{ 
+              width: buttonWidth,
+              transform: [{ scale: guestScale }],
+            }}
+          >
+            <Pressable 
+              onPress={handleGuest} 
+              onMouseEnter={() => setHoverButton('guest')}
+              onMouseLeave={() => setHoverButton(null)}
+              style={styles.imageButton}
+            >
+              <Image source={guestButtonImage} style={styles.imageButtonAsset} resizeMode="contain" />
+            </Pressable>
+          </Animated.View>
         </View>
 
         <View style={[styles.divider, { backgroundColor: colors.primary, width: width * 0.7 }]} />
