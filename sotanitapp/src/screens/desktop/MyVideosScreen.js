@@ -27,7 +27,7 @@ import FifaCard from '../../components/FifaCard';
 import AppButton from '../../components/AppButton';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import StrokeText from '../../components/StrokeText';
-import { deleteVideo, getAllVideos, getTeamById, getVideoComments, likeVideo, postForumMessage, unlikeVideo } from '../../api/backend';
+import { deleteVideo, getAllVideos, getTeamById, getVideoComments, likeVideo, postForumMessage, postVideoComment, unlikeVideo } from '../../api/backend';
 import { formatLikes } from '../../utils/format';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
@@ -86,6 +86,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
   const [pendingDeleteVideo, setPendingDeleteVideo] = useState(null);
   const [deletingVideo, setDeletingVideo] = useState(false);
+  const [loadingNewComment, setLoadingNewComment] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isBlocking = loadingVideos || deletingVideo;
   const [commentText, setCommentText] = useState('');
@@ -299,6 +300,53 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
       }
     });
   };
+
+  const handleSendComment = useCallback(async () => {
+    const targetVideoId = activeVideo?.id;
+    if (!targetVideoId) return;
+
+    if (!user?.email) {
+      Alert.alert('Inicia sesion', 'Debes iniciar sesion para comentar.');
+      return;
+    }
+
+    if (!commentText.trim()) {
+      Alert.alert('Vacio', 'Escribe un comentario antes de enviarlo.');
+      return;
+    }
+
+    setLoadingNewComment(true);
+    try {
+      const payload = {
+        id_usuario: user.email,
+        type: 'text',
+        text: commentText.trim(),
+        audioUrl: null,
+      };
+
+      await postVideoComment(targetVideoId, payload);
+
+      const updatedComments = await getVideoComments(targetVideoId);
+      const mapped = Array.isArray(updatedComments) ? updatedComments.map(mapComment) : [];
+
+      setCommentsByVideo((prev) => ({
+        ...prev,
+        [targetVideoId]: mapped,
+      }));
+
+      setVideos((prev) => prev.map((item) => (
+        String(item.id) === String(targetVideoId)
+          ? { ...item, commentsCount: mapped.length || 0 }
+          : item
+      )));
+
+      setCommentText('');
+    } catch (error) {
+      Alert.alert('Error', error.message || 'No se pudo enviar el comentario.');
+    } finally {
+      setLoadingNewComment(false);
+    }
+  }, [activeVideo?.id, commentText, mapComment, user?.email]);
 
   const commentsTranslateY = commentsAnim.interpolate({
     inputRange: [0, 1],
@@ -1038,7 +1086,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
           placeholderTextColor={colors.textMuted}
           style={[styles.commentInput, { backgroundColor: colors.surfaceElevated, color: colors.text }]}
         />
-        <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary }]} onPress={() => setCommentText('')}>
+        <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary, opacity: loadingNewComment ? 0.7 : 1 }]} onPress={handleSendComment} disabled={loadingNewComment}>
           <Ionicons name="send" size={18} color={colors.black} />
         </Pressable>
         <Pressable style={[styles.actionCircle, { backgroundColor: colors.surfaceElevated }]} onPress={() => {}}>
@@ -1510,7 +1558,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
                 placeholderTextColor={colors.textMuted}
                 style={[styles.commentInput, { backgroundColor: colors.surfaceElevated, color: colors.text }]}
               />
-              <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary }]} onPress={() => setCommentText('')}>
+              <Pressable style={[styles.actionCircle, { backgroundColor: colors.primary, opacity: loadingNewComment ? 0.7 : 1 }]} onPress={handleSendComment} disabled={loadingNewComment}>
                 <Ionicons name="send" size={18} color={colors.black} />
               </Pressable>
               <Pressable style={[styles.actionCircle, { backgroundColor: colors.surfaceElevated }]} onPress={() => {}}>
