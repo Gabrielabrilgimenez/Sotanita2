@@ -9,11 +9,23 @@
       "destination": "/service-worker.js"
     },
     {
+      "source": "/_expo/:path*",
+      "destination": "/_expo/:path*"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
       "source": "/share/:path*",
       "destination": "/index.html"
     },
     {
       "source": "/feed/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/Auth/:path*",
       "destination": "/index.html"
     },
     {
