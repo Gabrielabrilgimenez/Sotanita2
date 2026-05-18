@@ -19,13 +19,11 @@ export default function MobilePlatformScreen({ navigation }) {
   useEffect(() => {
     if (!isWeb || typeof navigator === 'undefined') return;
     const ua = String(navigator.userAgent || '').toLowerCase();
-    const platformRaw = String(navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
     const isiPhone = ua.includes('iphone');
     const isiPad = ua.includes('ipad');
     const isiPod = ua.includes('ipod');
     const isAndroid = ua.includes('android');
-    const isApplePlatform = platformRaw.includes('iphone') || platformRaw.includes('ipad') || platformRaw.includes('ipod');
-    const isAppleMobile = (isiPhone || isiPad || isiPod) && !isAndroid && isApplePlatform;
+    const isAppleMobile = (isiPhone || isiPad || isiPod) && !isAndroid;
 
     setIsIosWeb(isAppleMobile);
 
