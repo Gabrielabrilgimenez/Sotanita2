@@ -77,7 +77,7 @@ export default function VideoTile({ item, onPress, variant = 'uploaded' }) {
               ref={videoRef}
               source={{ uri: mediaUrls[0] }}
               style={[StyleSheet.absoluteFillObject, styles.media]}
-              resizeMode={ResizeMode.STRETCH}
+              resizeMode={ResizeMode.CONTAIN}
               shouldPlay={false}
               isLooping={false}
               isMuted

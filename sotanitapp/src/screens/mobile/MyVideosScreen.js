@@ -243,7 +243,7 @@ export default function MyVideosScreen({ navigation, route }) {
     <View style={styles.root}>
       <LinearGradient colors={gradients.video} style={StyleSheet.absoluteFillObject} />
 
-      <SafeAreaView style={[styles.safeArea, { minHeight: windowHeight }]}>
+      <SafeAreaView style={styles.safeArea}>
         <View style={[styles.topBar, { padding: spacing.md }]}> 
           <Pressable onPress={() => navigation.goBack()} style={[styles.roundButton, { backgroundColor: `${colors.black}88` }]}> 
             <Ionicons name="arrow-back" size={20} color={colors.white} />
@@ -294,7 +294,7 @@ export default function MyVideosScreen({ navigation, route }) {
         ) : (
           mediaType === 'video' ? (
             <Pressable
-              style={[styles.videoCenter, { height: windowHeight }]}
+              style={styles.videoCenter}
               onPress={() => {
                 if (!canCycleVideos) return;
                 setCurrentVideo((prev) => (prev + 1) % videos.length);
@@ -305,7 +305,7 @@ export default function MyVideosScreen({ navigation, route }) {
               <Video
                 style={StyleSheet.absoluteFillObject}
                 source={{ uri: activeVideo.url }}
-                resizeMode={ResizeMode.COVER}
+                resizeMode={ResizeMode.CONTAIN}
                 isLooping
                 shouldPlay
                 isMuted={false}
@@ -352,7 +352,7 @@ export default function MyVideosScreen({ navigation, route }) {
             </Pressable>
           ) : isCarousel ? (
             <View
-              style={[styles.videoCenter, { height: windowHeight }]}
+              style={styles.videoCenter}
               onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
             >
               <FlatList
@@ -364,10 +364,10 @@ export default function MyVideosScreen({ navigation, route }) {
                 extraData={mediaUrls.length}
                 keyExtractor={(item, index) => `${item}-${index}`}
                 renderItem={({ item }) => (
-                  <View style={{ width: carouselItemWidth, height: windowHeight }}>
+                  <View style={{ width: carouselItemWidth, height: '100%' }}>
                     <Image
                       source={{ uri: item }}
-                      resizeMode="cover"
+                      resizeMode="stretch"
                       style={StyleSheet.absoluteFillObject}
                     />
                   </View>
@@ -384,7 +384,7 @@ export default function MyVideosScreen({ navigation, route }) {
                 onViewableItemsChanged={onViewableItemsChangedRef.current}
                 viewabilityConfig={viewabilityConfigRef.current}
                 style={styles.carouselScroll}
-                contentContainerStyle={[styles.carouselContent, { height: windowHeight }]}
+                contentContainerStyle={styles.carouselContent}
                 snapToInterval={Platform.OS === 'web' ? carouselItemWidth : undefined}
                 snapToAlignment={Platform.OS === 'web' ? 'start' : undefined}
                 decelerationRate={Platform.OS === 'web' ? 'fast' : undefined}
@@ -437,7 +437,7 @@ export default function MyVideosScreen({ navigation, route }) {
             </View>
           ) : (
             <Pressable
-              style={[styles.videoCenter, { height: windowHeight }]}
+              style={styles.videoCenter}
               onPress={() => {
                 if (!canCycleVideos) return;
                 setCurrentVideo((prev) => (prev + 1) % videos.length);
@@ -448,7 +448,7 @@ export default function MyVideosScreen({ navigation, route }) {
               <Image
                 source={{ uri: activeVideo.url }}
                 style={StyleSheet.absoluteFillObject}
-                resizeMode="cover"
+                resizeMode="stretch"
               />
               <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={StyleSheet.absoluteFillObject} />
               <View style={styles.infoWrapper}>
@@ -655,6 +655,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    overflow: 'hidden',
   },
   carouselScroll: {
     flex: 1,

@@ -483,7 +483,7 @@ export default function ForoEquipo({ route, navigation }) {
                       <Video
                         source={{ uri: item.share.thumbnailUrl }}
                         style={{ width: '100%', height: '100%' }}
-                        resizeMode={ResizeMode.COVER}
+                        resizeMode={ResizeMode.CONTAIN}
                         shouldPlay={false}
                         isLooping={false}
                         isMuted

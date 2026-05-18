@@ -34,6 +34,23 @@ const isLikelyVideoUrl = (url) => {
   return value.includes('/video/') || value.endsWith('.mp4') || value.endsWith('.mov') || value.endsWith('.m4v');
 };
 
+const normalizeCloudinaryVideoUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return raw;
+
+  const marker = '/video/upload/';
+  const markerIndex = raw.indexOf(marker);
+  if (markerIndex === -1) return raw;
+
+  const afterMarker = raw.slice(markerIndex + marker.length);
+  if (afterMarker.startsWith('f_') || afterMarker.startsWith('c_') || afterMarker.startsWith('w_')) {
+    return raw;
+  }
+
+  const transform = 'f_mp4,c_pad,w_1080,h_1920,ar_9:16,so_0,q_auto';
+  return `${raw.slice(0, markerIndex + marker.length)}${transform}/${afterMarker}`;
+};
+
 const normalizeUserId = (value) => String(value || '').trim().toLowerCase();
 
 const matchesUserIdentifier = (sourceValue, user) => {
@@ -142,7 +159,9 @@ const FeedVideoItem = ({
   const tapFeedbackAnim = useRef(new Animated.Value(0)).current;
   const tapFeedbackSource = require('../../../assets/like.gif');
   const screenWidth = Dimensions.get('window').width;
+  const [videoNatural, setVideoNatural] = useState(null);
   const gifMaxSize = Math.round(screenWidth * 0.65);
+  const videoUrl = useMemo(() => normalizeCloudinaryVideoUrl(video.url), [video.url]);
   const mediaUrls = Array.isArray(video.mediaUrls) && video.mediaUrls.length
     ? video.mediaUrls
     : video.url
@@ -177,6 +196,33 @@ const FeedVideoItem = ({
     // Asegurar que el audio se escuche en iOS incluso con el boton de silencio
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
   }, [isVideo]);
+
+  const videoSurfaceStyle = useMemo(() => {
+    const naturalWidth = Number(videoNatural?.width) || 0;
+    const naturalHeight = Number(videoNatural?.height) || 0;
+    if (!naturalWidth || !naturalHeight || !height || !screenWidth) {
+      return styles.videoSurface;
+    }
+
+    let width = naturalWidth;
+    let heightValue = naturalHeight;
+    const orientation = String(videoNatural?.orientation || '').toLowerCase();
+
+    if (orientation === 'portrait' && width > heightValue) {
+      [width, heightValue] = [heightValue, width];
+    }
+
+    if (orientation === 'landscape' && heightValue > width) {
+      [width, heightValue] = [heightValue, width];
+    }
+
+    const aspect = width / heightValue;
+    const containerAspect = screenWidth / height;
+    const displayWidth = aspect > containerAspect ? screenWidth : height * aspect;
+    const displayHeight = aspect > containerAspect ? screenWidth / aspect : height;
+
+    return { width: displayWidth, height: displayHeight };
+  }, [height, screenWidth, videoNatural]);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,16 +261,32 @@ const FeedVideoItem = ({
   return (
     <Pressable style={[styles.videoContainer, { height }]} onPress={handleMediaTap}> 
       {isVideo ? (
-        <Video
-          ref={videoRef}
-          style={StyleSheet.absoluteFillObject}
-          source={{ uri: video.url }}
-          resizeMode={ResizeMode.CONTAIN}
-          isLooping
-          shouldPlay={isActive && !isAudioPlaying && !isRecording}
-          isMuted={!isActive || isAudioPlaying || isRecording}
-          volume={1.0}
-        />
+        Platform.OS === 'web' ? (
+          <video
+            src={videoUrl}
+            muted={!isActive || isAudioPlaying || isRecording}
+            loop
+            playsInline
+            autoPlay={isActive && !isAudioPlaying && !isRecording}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <Video
+            ref={videoRef}
+            style={videoSurfaceStyle}
+            source={{ uri: videoUrl }}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            shouldPlay={isActive && !isAudioPlaying && !isRecording}
+            isMuted={!isActive || isAudioPlaying || isRecording}
+            volume={1.0}
+            onLoad={(status) => {
+              if (status?.naturalSize?.width && status?.naturalSize?.height) {
+                setVideoNatural(status.naturalSize);
+              }
+            }}
+          />
+        )
       ) : mediaUrls.length > 1 ? (
         <MediaCarousel
           urls={mediaUrls}
@@ -1883,8 +1945,9 @@ const styles = StyleSheet.create({
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 200 },
   emptyText: { fontSize: 16, fontWeight: '600' },
-  videoContainer: { width: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
-  mediaContainer: { width: '100%', backgroundColor: '#000' },
+  videoContainer: { width: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#000', overflow: 'hidden' },
+  mediaContainer: { width: '100%', backgroundColor: '#000', overflow: 'hidden' },
+  videoSurface: { width: '100%', height: '100%' },
   dotsRow: { position: 'absolute', bottom: 18, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
   dot: { height: 6, borderRadius: 3 },
   bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%' },
