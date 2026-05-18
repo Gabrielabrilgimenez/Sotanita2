@@ -9,6 +9,7 @@ import Header from '../../components/Header';
 import AppInput from '../../components/AppInput';
 import AppButton from '../../components/AppButton';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import ErrorPopup from '../../components/ErrorPopup';
 import { getCategories, uploadVideo } from '../../api/backend';
 import { useAuth } from '../../context/AuthContext';
 
@@ -24,8 +25,14 @@ export default function UploadScreen({ navigation }) {
   const [categories, setCategories] = useState([]);
   const [description, setDescription] = useState('');
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showInvalidMediaPopup, setShowInvalidMediaPopup] = useState(false);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
+
+  const invalidMediaMessage = 'El contenido multimedia seleccionado no es valido. Este formulario espera videos o imagenes verticales (si es video, solo uno).';
+  const showInvalidMediaAlert = () => {
+    setShowInvalidMediaPopup(true);
+  };
 
   useResetScrollOnFocus(scrollRef);
 
@@ -117,25 +124,25 @@ export default function UploadScreen({ navigation }) {
       const types = new Set(assets.map((asset) => asset.type));
 
       if (types.has('video') && assets.length > 1) {
-        Alert.alert('Solo un video', 'Para videos solo puedes subir uno a la vez.');
+        showInvalidMediaAlert();
         return;
       }
 
       if (types.size > 1) {
-        Alert.alert('Formato invalido', 'Selecciona solo videos o solo imagenes.');
+        showInvalidMediaAlert();
         return;
       }
 
       const normalizedFiles = [];
       for (const asset of assets) {
         if (asset.type && asset.type !== 'video' && asset.type !== 'image') {
-          Alert.alert('Formato invalido', 'Solo se permiten videos o imagenes verticales.');
+          showInvalidMediaAlert();
           return;
         }
 
         const { width, height } = await getMediaDimensions(asset);
         if (!isMobileVideoRatio(width, height)) {
-          Alert.alert('Formato invalido', 'El contenido debe ser vertical.');
+          showInvalidMediaAlert();
           return;
         }
 
@@ -366,6 +373,12 @@ export default function UploadScreen({ navigation }) {
       </ScrollView>
 
       <LoadingOverlay visible={loading} />
+      <ErrorPopup
+        visible={showInvalidMediaPopup}
+        title="X Uppss ha ocurrido un error"
+        message={invalidMediaMessage}
+        onClose={() => setShowInvalidMediaPopup(false)}
+      />
     </ScreenGradient>
   );
 }
