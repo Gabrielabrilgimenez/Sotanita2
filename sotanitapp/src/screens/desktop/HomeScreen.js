@@ -354,7 +354,7 @@ export default function HomeScreen({ navigation, route }) {
             <Text
               style={{
                 color: colors.text,
-                fontSize: typography.sizes.md * textScale,
+                fontSize: typography.sizes.xxl * textScale,
                 fontWeight: typography.weights.semibold,
                 fontFamily: typography.families.nougat,
                 flex: 1,
@@ -497,26 +497,15 @@ export default function HomeScreen({ navigation, route }) {
                 },
               ]}
             >
-              <Pressable
-                onPress={() => {
-                  setSelectedCategory('');
-                  setShowCategoryPicker(false);
-                }}
-                style={({ pressed }) => [
-                  styles.modalItem,
-                  { opacity: pressed ? 0.75 : 1, borderBottomColor: colors.border },
-                ]}
+              <ScrollView
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+                style={{ maxHeight: 420 }}
+                contentContainerStyle={{ paddingBottom: 4 }}
               >
-                <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, fontFamily: typography.families.nougat, fontSize: typography.sizes.md * textScale }}>
-                  Últimas Subidas
-                </Text>
-              </Pressable>
-
-              {categories.map((item) => (
                 <Pressable
-                  key={String(item)}
                   onPress={() => {
-                    setSelectedCategory(String(item));
+                    setSelectedCategory('');
                     setShowCategoryPicker(false);
                   }}
                   style={({ pressed }) => [
@@ -524,11 +513,29 @@ export default function HomeScreen({ navigation, route }) {
                     { opacity: pressed ? 0.75 : 1, borderBottomColor: colors.border },
                   ]}
                 >
-                  <Text style={{ color: colors.text, fontFamily: typography.families.nougat, fontSize: typography.sizes.md * textScale }}>
-                    {String(item)}
+                  <Text style={{ color: colors.text, fontWeight: typography.weights.semibold, fontFamily: typography.families.nougat, fontSize: typography.sizes.xxl * textScale }}>
+                    Últimas Subidas
                   </Text>
                 </Pressable>
-              ))}
+
+                {categories.map((item) => (
+                  <Pressable
+                    key={String(item)}
+                    onPress={() => {
+                      setSelectedCategory(String(item));
+                      setShowCategoryPicker(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.modalItem,
+                      { opacity: pressed ? 0.75 : 1, borderBottomColor: colors.border },
+                    ]}
+                  >
+                    <Text style={{ color: colors.text, fontFamily: typography.families.nougat, fontSize: typography.sizes.xxl * textScale }}>
+                      {String(item)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </Pressable>
           </Pressable>
         </Modal>
@@ -649,7 +656,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     overflow: 'hidden',
-    maxHeight: 320,
+    maxHeight: 420,
   },
   modalItem: {
     minHeight: 48,

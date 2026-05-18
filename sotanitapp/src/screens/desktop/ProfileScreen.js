@@ -139,6 +139,7 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       email: '',
     };
   }, [isLoggedIn, user]);
+  const showProfileInfoCards = isLoggedIn && !guestMode;
 
   useEffect(() => {
     let cancelled = false;
@@ -541,22 +542,24 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
               ) : null}
 
               <View style={[styles.desktopEditColumn, { gap: spacing.sm }]}> 
-                {[
-                  { key: 'username', label: 'Usuario' },
-                  { key: 'position', label: 'Posicion' },
-                ].map((field) => (
-                  <View key={field.key} style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-                    <View>
-                      <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>{field.label}</Text>
-                      <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
-                        {profile[field.key]}
-                      </Text>
-                    </View>
-                    <Pressable onPress={() => openEdit(field.key)}>
-                      <Ionicons name="create-outline" size={20} color={colors.primary} />
-                    </Pressable>
-                  </View>
-                ))}
+                {showProfileInfoCards
+                  ? [
+                      { key: 'username', label: 'Usuario' },
+                      { key: 'position', label: 'Posicion' },
+                    ].map((field) => (
+                      <View key={field.key} style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+                        <View>
+                          <Text style={{ color: colors.textMuted, fontSize: typography.sizes.xs * textScale }}>{field.label}</Text>
+                          <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.md * textScale }}>
+                            {profile[field.key]}
+                          </Text>
+                        </View>
+                        <Pressable onPress={() => openEdit(field.key)}>
+                          <Ionicons name="create-outline" size={20} color={colors.primary} />
+                        </Pressable>
+                      </View>
+                    ))
+                  : null}
 
                 {!requireLogin ? (
                   <Pressable
