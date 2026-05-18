@@ -1248,33 +1248,11 @@ app.get('/api/notificaciones', async (req, res) => {
                 actorTeamImageUrl: cardData.teamImageUrl,
                 actorFrameImageId: cardData.frameImageId,
                 actorFrameId: cardData.resolvedFrameId,
-                const insertResult = await db.collection('comentarios').insertOne(commentDoc);
-                const createdComment = await db.collection('comentarios').findOne({ _id: insertResult.insertedId });
-
-                const authorProfile = await db.collection('perfiles').findOne({ email: normalizedUser });
-                const cardData = authorProfile
-                    ? await resolveCardData(authorProfile.teamId, authorProfile.frameId)
-                    : { teamName: null, teamImageUrl: null, frameImageId: null, resolvedFrameId: null };
-
-                const enrichedComment = {
-                    ...createdComment,
-                    authorUsername: authorProfile?.username || normalizedUser.split('@')[0] || 'usuario',
-                    authorProfileImageUrl: authorProfile?.profileImageUrl || null,
-                    authorTeamName: cardData.teamName,
-                    authorTeamImageUrl: cardData.teamImageUrl,
-                    authorFrameImageId: cardData.frameImageId,
-                    authorFrameId: cardData.resolvedFrameId,
-                    id: createdComment._id.toString(),
-                    _id: undefined,
-                };
-
-                io.emit('videoCommentCreated', {
-                    videoId: id,
-                    comment: enrichedComment,
-                });
+                id: n._id ? n._id.toString() : undefined,
                 _id: undefined,
             };
-                    ...enrichedComment,
+        }));
+
         return res.json(enrichedNotifications);
     } catch (error) {
         console.error('Error al obtener notificaciones:', error);
@@ -1409,20 +1387,16 @@ app.delete('/api/videos/:id', async (req, res) => {
             return res.status(404).json({ message: 'Video no encontrado' });
         }
 
-        const ownerId = String(video.id_usuario || '').trim().toLowerCase();
-        if (ownerId !== userIdRaw) {
-            return res.status(403).json({ message: 'No tienes permiso para eliminar este video' });
+        const ownerMatches = String(video.id_usuario || '').trim().toLowerCase() === userIdRaw;
+        if (!ownerMatches) {
+            return res.status(403).json({ message: 'No tienes permiso para borrar este video' });
         }
 
         await db.collection('videos').deleteOne({ _id: videoObjectId });
 
-        return res.json({
-            success: true,
-            id: id,
-            message: 'Video eliminado correctamente',
-        });
+        return res.json({ success: true, id });
     } catch (error) {
-        console.error('Error al eliminar video:', error);
+        console.error('Error al borrar video:', error);
         return res.status(500).json({ message: 'Error interno del servidor', details: error.message });
     }
 });
@@ -1460,7 +1434,6 @@ const createUserSchema = z.object({
         .email('Email invalido')
         .refine(
             (email) => {
-                // Basic real email validation - must have common TLD
                 const parts = email.split('@');
                 if (parts.length !== 2) return false;
                 const domain = parts[1];
@@ -1469,15 +1442,10 @@ const createUserSchema = z.object({
             'Email debe ser un email valido y real'
         ),
     password: z.string()
-        .min(8, 'Contrasena debe tener minimo 8 caracteres')
-        .regex(/[a-zA-Z]/, 'Contrasena debe contener al menos una letra')
-        .regex(/\d/, 'Contrasena debe contener al menos un numero')
+        .min(8, 'Contrasena debe tener al menos 8 caracteres')
         .regex(/[$&%_#]/, 'Contrasena debe contener al menos un caracter especial ($, &, %, _, #)')
         .refine(
-            (password) => {
-                // Verify it only contains allowed characters
-                return /^[a-zA-Z0-9$&%_#]+$/.test(password);
-            },
+            (password) => /^[a-zA-Z0-9$&%_#]+$/.test(password),
             'Contrasena solo puede contener letras, numeros y caracteres especiales ($, &, %, _, #)'
         ),
     position: z.string().min(1),

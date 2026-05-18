@@ -152,13 +152,18 @@ function DesktopNavBar({ navigation }) {
   useEffect(() => {
     if (!isLoggedIn || !user?.email) return;
 
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
     socketRef.current = io(SOCKET_BASE_URL, { reconnection: true });
 
     socketRef.current.on('connect', () => {
-      socketRef.current.emit('subscribe', { userEmail: user.email });
+      socketRef.current.emit('userConnect', String(user.email).trim().toLowerCase());
     });
 
-    socketRef.current.on('notificationCreated', () => {
+    socketRef.current.on('newNotification', () => {
       setUnreadCount((prev) => prev + 1);
     });
 
