@@ -1248,11 +1248,33 @@ app.get('/api/notificaciones', async (req, res) => {
                 actorTeamImageUrl: cardData.teamImageUrl,
                 actorFrameImageId: cardData.frameImageId,
                 actorFrameId: cardData.resolvedFrameId,
-                id: n._id.toString(),
+                const insertResult = await db.collection('comentarios').insertOne(commentDoc);
+                const createdComment = await db.collection('comentarios').findOne({ _id: insertResult.insertedId });
+
+                const authorProfile = await db.collection('perfiles').findOne({ email: normalizedUser });
+                const cardData = authorProfile
+                    ? await resolveCardData(authorProfile.teamId, authorProfile.frameId)
+                    : { teamName: null, teamImageUrl: null, frameImageId: null, resolvedFrameId: null };
+
+                const enrichedComment = {
+                    ...createdComment,
+                    authorUsername: authorProfile?.username || normalizedUser.split('@')[0] || 'usuario',
+                    authorProfileImageUrl: authorProfile?.profileImageUrl || null,
+                    authorTeamName: cardData.teamName,
+                    authorTeamImageUrl: cardData.teamImageUrl,
+                    authorFrameImageId: cardData.frameImageId,
+                    authorFrameId: cardData.resolvedFrameId,
+                    id: createdComment._id.toString(),
+                    _id: undefined,
+                };
+
+                io.emit('videoCommentCreated', {
+                    videoId: id,
+                    comment: enrichedComment,
+                });
                 _id: undefined,
             };
-        }));
-
+                    ...enrichedComment,
         return res.json(enrichedNotifications);
     } catch (error) {
         console.error('Error al obtener notificaciones:', error);

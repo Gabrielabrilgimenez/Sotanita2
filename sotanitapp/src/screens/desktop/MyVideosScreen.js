@@ -20,6 +20,7 @@ import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { io } from 'socket.io-client';
 import { Audio, Video, ResizeMode } from '../../utils/media';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
@@ -31,6 +32,9 @@ import { deleteVideo, getAllVideos, getTeamById, getVideoComments, likeVideo, po
 import { formatLikes } from '../../utils/format';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const SOCKET_BASE_URL = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
+  .replace(/\/+$/, '')
+  .replace(/\/api$/, '');
 const FRONTEND_URL = process.env.EXPO_PUBLIC_FRONTEND_URL || 'https://sotanita.vercel.app';
 
 const isLikelyVideoUrl = (url) => {
@@ -103,6 +107,7 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
   const [audioDurationMs, setAudioDurationMs] = useState(0);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const commentsAnim = useRef(new Animated.Value(0)).current;
+    const socketRef = useRef(null);
   const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChangedRef = useRef(({ viewableItems }) => {
     const firstVisible = viewableItems?.[0];
@@ -136,6 +141,41 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
     audioUrl: comment.audioUrl,
     audioDurationMs: comment.audioDurationMs || comment.audio_duration_ms || comment.audioDuration || 0,
   }), []);
+
+  const applyIncomingComment = useCallback((videoId, incomingComment) => {
+    if (!videoId || !incomingComment) return;
+
+    const normalizedVideoId = String(videoId);
+    const mappedComment = mapComment(incomingComment);
+
+    setCommentsByVideo((prev) => {
+      const existingComments = prev[normalizedVideoId] || [];
+      const commentId = String(mappedComment.id || '');
+
+      if (!commentId) {
+        return {
+          ...prev,
+          [normalizedVideoId]: [...existingComments, mappedComment],
+        };
+      }
+
+      const alreadyExists = existingComments.some((comment) => String(comment.id || comment._id || '') === commentId);
+      if (alreadyExists) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [normalizedVideoId]: [...existingComments, mappedComment],
+      };
+    });
+
+    setVideos((prev) => prev.map((item) => (
+      String(item.id) === String(normalizedVideoId)
+        ? { ...item, commentsCount: Number(item.commentsCount || 0) + 1 }
+        : item
+    )));
+  }, [mapComment]);
 
   useEffect(() => {
     const loadVideos = async () => {
@@ -187,6 +227,49 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
 
     loadVideos();
   }, [sourceTab, selectedVideoId, user?.email]);
+
+  useEffect(() => {
+    if (!user?.email) return undefined;
+
+    if (!socketRef.current) {
+      socketRef.current = io(SOCKET_BASE_URL, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+      });
+    }
+
+    const socket = socketRef.current;
+
+    const handleConnect = () => {
+      socket.emit('userConnect', String(user.email).trim().toLowerCase());
+    };
+
+    const handleCommentCreated = (payload) => {
+      const payloadVideoId = String(payload?.videoId || '');
+      if (!payloadVideoId) return;
+      applyIncomingComment(payloadVideoId, payload.comment);
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('videoCommentCreated', handleCommentCreated);
+
+    if (socket.connected) {
+      handleConnect();
+    }
+
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('videoCommentCreated', handleCommentCreated);
+    };
+  }, [applyIncomingComment, user?.email]);
+
+  useEffect(() => () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+  }, []);
 
   const activeVideo = videos[currentVideo] || null;
   const mediaUrls = normalizeMediaUrls(activeVideo);

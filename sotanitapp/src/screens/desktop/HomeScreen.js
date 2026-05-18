@@ -554,6 +554,7 @@ const styles = StyleSheet.create({
   leftPanel: {
     width: '33.3333%',
     borderRightWidth: 1,
+    position: 'relative',
   },
   categorySelector: {
     minHeight: 50,
@@ -564,14 +565,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   qrBlock: {
-    marginTop: 28,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    marginTop: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    transform: [{ translateY: -170 }],
+    paddingHorizontal: 24,
+    zIndex: 2,
   },
   qrImage: {
-    width: '82%',
+    width: 280,
+    height: 280,
     aspectRatio: 1,
     maxWidth: 320,
+    maxHeight: 320,
+    flexShrink: 0,
   },
   feedColumnsWrapper: {
     width: '66.6667%',
