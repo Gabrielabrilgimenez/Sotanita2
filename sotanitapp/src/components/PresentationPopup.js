@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFirstVisit } from '../hooks/useFirstVisit';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Asset } from 'expo-asset';
@@ -24,6 +25,11 @@ export default function PresentationPopup({ visible = true, onClose }) {
   const scrollRef = useRef(null);
   const handleClose = typeof onClose === 'function' ? onClose : () => {};
 
+  const { isFirstVisit, loading, markFirstVisitSeen } = useFirstVisit();
+
+  // Only show the popup when the hook determines this is the first visit
+  const modalVisible = Boolean(visible) && !loading && isFirstVisit;
+
   const popupWidth = width * 0.95;
   const popupHeight = height * 0.8;
 
@@ -43,9 +49,9 @@ export default function PresentationPopup({ visible = true, onClose }) {
   );
 
   useEffect(() => {
-    if (!visible) return;
+    if (!modalVisible) return;
     setPageIndex(0);
-  }, [visible]);
+  }, [modalVisible]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -57,7 +63,10 @@ export default function PresentationPopup({ visible = true, onClose }) {
       return {
         backLabel: 'SALTAR',
         nextLabel: 'CONTINUAR',
-        onBack: handleClose,
+        onBack: async () => {
+          try { await markFirstVisitSeen(); } catch (e) {}
+          handleClose();
+        },
         onNext: () => setPageIndex(1),
       };
     }
@@ -67,7 +76,10 @@ export default function PresentationPopup({ visible = true, onClose }) {
         backLabel: 'ATRAS',
         nextLabel: 'ENTENDIDO',
         onBack: () => setPageIndex((current) => Math.max(0, current - 1)),
-        onNext: handleClose,
+        onNext: async () => {
+          try { await markFirstVisitSeen(); } catch (e) {}
+          handleClose();
+        },
       };
     }
 
@@ -80,7 +92,7 @@ export default function PresentationPopup({ visible = true, onClose }) {
   }, [handleClose, pageIndex, tutorialPagesWithRatio.length]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={handleClose}>
+    <Modal visible={modalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={async () => { try { await markFirstVisitSeen(); } catch (e) {} handleClose(); }}>
       <View style={styles.backdrop}>
         <LinearGradient colors={['#052e16', '#166534', '#22c55e']} style={[styles.popup, { width: popupWidth, height: popupHeight }]}>
           <View style={styles.pageViewport}>

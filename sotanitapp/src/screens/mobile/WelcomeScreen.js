@@ -1,8 +1,9 @@
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { useFirstVisit } from '../../hooks/useFirstVisit';
 import ScreenGradient from '../../components/ScreenGradient';
+import PresentationPopup from '../../components/PresentationPopup';
 
 const appLogo = require('../../../assets/LOGO.png');
 const loginButtonImage = require('../../../assets/init/login.png');
@@ -20,17 +21,7 @@ export default function WelcomeScreen({ navigation }) {
 
   return (
     <ScreenGradient>
-      <Modal visible={!loading && isFirstVisit} transparent animationType="fade" statusBarTranslucent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}> 
-            <Text style={[styles.modalTitle, { color: colors.text, fontFamily: typography.families.nougat }]}>Bienvenido a Sotanita</Text>
-            <Text style={[styles.modalMessage, { color: colors.textMuted }]}>Esta es la primera vez que entras desde este dispositivo o navegador. La próxima vez no volverá a mostrarse este mensaje.</Text>
-            <Pressable onPress={markFirstVisitSeen} style={[styles.modalButton, { backgroundColor: colors.primary }]}> 
-              <Text style={[styles.modalButtonText, { color: colors.background }]}>Continuar</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <PresentationPopup onClose={markFirstVisitSeen} />
 
       <View style={[styles.container, { padding: spacing.xl }]}> 
         <View style={styles.logoBlock}>

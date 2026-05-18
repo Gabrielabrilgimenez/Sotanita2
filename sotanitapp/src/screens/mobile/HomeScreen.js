@@ -15,7 +15,6 @@ import FifaCard from '../../components/FifaCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import AppButton from '../../components/AppButton';
 import StrokeText from '../../components/StrokeText';
-import PresentationPopup from '../../components/PresentationPopup';
 
 const isNonMobileDevice = () => {
   if (Platform.OS !== 'web') {
@@ -412,7 +411,7 @@ export default function HomeScreen({ navigation, route }) {
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showPresentationPopup, setShowPresentationPopup] = useState(true);
+  
   const [shareVideoId, setShareVideoId] = useState(null);
   const [fanZoneShieldUri, setFanZoneShieldUri] = useState('');
   const [deletingVideoId, setDeletingVideoId] = useState(null);
@@ -1490,7 +1489,7 @@ export default function HomeScreen({ navigation, route }) {
 
   return (
     <View style={styles.root}>
-      <PresentationPopup visible={showPresentationPopup} onClose={() => setShowPresentationPopup(false)} />
+      
       <View style={styles.categoryBar}>
         <View
           style={[
