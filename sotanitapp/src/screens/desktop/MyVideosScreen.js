@@ -1135,6 +1135,21 @@ export default function MyVideosScreen({ navigation, route, embedded = false, on
             </Pressable>
           </Pressable>
         </Modal>
+
+        <Modal visible={Boolean(pendingDeleteVideo)} transparent animationType="fade" onRequestClose={() => setPendingDeleteVideo(null)}>
+          <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={() => setPendingDeleteVideo(null)}>
+            <Pressable style={[styles.dialog, { backgroundColor: colors.surface }]} onPress={() => {}}>
+              <Text style={{ color: colors.text, fontWeight: typography.weights.bold, fontSize: typography.sizes.lg * textScale, marginBottom: 8 }}>
+                Eliminar video?
+              </Text>
+              <Text style={{ color: colors.textMuted, marginBottom: 16 }}>Esta accion no se puede deshacer.</Text>
+              <View style={styles.dialogActions}>
+                <AppButton title="Cancelar" variant="secondary" onPress={() => setPendingDeleteVideo(null)} style={{ flex: 1 }} />
+                <AppButton title="Eliminar" variant="danger" loading={deletingVideo} onPress={handleDeleteVideo} style={{ flex: 1 }} />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </>
     ) : (
     <View style={styles.root}>
