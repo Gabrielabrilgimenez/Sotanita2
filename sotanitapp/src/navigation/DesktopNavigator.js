@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import { getScreenComponent } from '../screens/index';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
+import { SOCKET_BASE_URL, getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
 import NotificationItem from '../components/NotificationItem';
 import FifaCard from '../components/FifaCard';
 import LoadingOverlay from '../components/LoadingOverlay';
@@ -152,8 +152,7 @@ function DesktopNavBar({ navigation }) {
   useEffect(() => {
     if (!isLoggedIn || !user?.email) return;
 
-    const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-    socketRef.current = io(BACKEND_URL, { reconnection: true });
+    socketRef.current = io(SOCKET_BASE_URL, { reconnection: true });
 
     socketRef.current.on('connect', () => {
       socketRef.current.emit('subscribe', { userEmail: user.email });

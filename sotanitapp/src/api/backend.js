@@ -1,4 +1,5 @@
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+export const SOCKET_BASE_URL = API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '');
 
 function buildApiUrl(path) {
   const normalizedBase = API_BASE_URL.replace(/\/+$/, '');

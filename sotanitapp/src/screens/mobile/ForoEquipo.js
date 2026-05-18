@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
-import { getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../../api/backend';
+import { SOCKET_BASE_URL, getTeamById, getForumMessages, postForumMessage, uploadCommentAudio, deleteForumMessage } from '../../api/backend';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import { Audio, ResizeMode, Video } from '../../utils/media';
 import { Ionicons } from '@expo/vector-icons';
@@ -126,12 +126,8 @@ export default function ForoEquipo({ route, navigation }) {
     })();
 
     // Configurar WebSocket para mensajes del foro
-    const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
-      .replace(/\/+$/, '')
-      .replace(/\/api$/, '');
-    
     if (!socketRef.current) {
-      socketRef.current = io(apiBaseUrl, {
+      socketRef.current = io(SOCKET_BASE_URL, {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,

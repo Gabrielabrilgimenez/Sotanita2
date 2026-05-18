@@ -7,7 +7,7 @@ import { io } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import useResetScrollOnFocus from '../../hooks/useResetScrollOnFocus';
-import { getAllVideos, getPositions, getTeamById, getTeamNames, getTeamsListWithEscudo, isUsernameAvailable } from '../../api/backend';
+import { SOCKET_BASE_URL, getAllVideos, getPositions, getTeamById, getTeamNames, getTeamsListWithEscudo, isUsernameAvailable } from '../../api/backend';
 import ScreenGradient from '../../components/ScreenGradient';
 import FifaCard from '../../components/FifaCard';
 import AppButton from '../../components/AppButton';
@@ -463,12 +463,8 @@ export default function ProfileScreen({ navigation, hideProfileCard = false }) {
       return;
     }
 
-    const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
-      .replace(/\/+$/, '')
-      .replace(/\/api$/, '');
-
     if (!socketRef.current) {
-      socketRef.current = io(apiBaseUrl, {
+      socketRef.current = io(SOCKET_BASE_URL, {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,

@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import { getScreenComponent } from '../screens/index';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
+import { SOCKET_BASE_URL, getAllNotifications, getUnreadNotificationsCount, markNotificationsRead, deleteAllNotifications } from '../api/backend';
 import NotificationItem from '../components/NotificationItem';
 import FifaCard from '../components/FifaCard';
 import LoadingOverlay from '../components/LoadingOverlay';
@@ -277,13 +277,9 @@ export default function TabNavigator({ navigation }) {
       return;
     }
 
-    const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000')
-      .replace(/\/+$/, '')
-      .replace(/\/api$/, '');
-    
     // Conectar al WebSocket
     if (!socketRef.current) {
-      socketRef.current = io(apiBaseUrl, {
+      socketRef.current = io(SOCKET_BASE_URL, {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
