@@ -35,16 +35,17 @@ function getDeviceLabel() {
 
 console.log(`DISPOSITIVO INICIAL: ${getDeviceLabel()}`);
 
-// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
-// It also ensures that whether you load the app in Expo Go or in a native build,
-// the environment is set up appropriately
-registerRootComponent(App);
-
-// Register service worker only on web
+// Register service worker as early as possible on web before mounting the app
 if (Platform.OS === 'web') {
 	try {
-		import('./registerServiceWorker');
+		// Use require to ensure synchronous execution during module evaluation
+		require('./registerServiceWorker');
 	} catch (e) {
 		// ignore in native environments
 	}
 }
+
+// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
+// It also ensures that whether you load the app in Expo Go or in a native build,
+// the environment is set up appropriately
+registerRootComponent(App);
