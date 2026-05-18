@@ -39,3 +39,12 @@ console.log(`DISPOSITIVO INICIAL: ${getDeviceLabel()}`);
 // It also ensures that whether you load the app in Expo Go or in a native build,
 // the environment is set up appropriately
 registerRootComponent(App);
+
+// Register service worker only on web
+if (Platform.OS === 'web') {
+	try {
+		import('./registerServiceWorker');
+	} catch (e) {
+		// ignore in native environments
+	}
+}

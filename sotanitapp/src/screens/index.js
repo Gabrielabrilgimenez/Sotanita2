@@ -28,7 +28,7 @@ import SettingsScreenMobile from './mobile/SettingsScreen';
 import ShareScreenMobile from './mobile/ShareScreen';
 import UploadScreenMobile from './mobile/UploadScreen';
 import WelcomeScreenMobile from './mobile/WelcomeScreen';
-import MobilePlatformScreenMobile from './mobile/MobilePlatformScreen';
+// MobilePlatformScreen removed — mobiles go directly to WelcomeScreen
 
 // Importar todas las pantallas desktop
 import ForoEquipoDesktop from './desktop/ForoEquipo';
@@ -67,7 +67,7 @@ const getScreenComponent = (screenName) => {
     ShareScreen: isDesktop ? ShareScreenDesktop : ShareScreenMobile,
     UploadScreen: isDesktop ? UploadScreenDesktop : UploadScreenMobile,
     WelcomeScreen: isDesktop ? WelcomeScreenDesktop : WelcomeScreenMobile,
-    MobilePlatformScreen: isDesktop ? WelcomeScreenDesktop : MobilePlatformScreenMobile,
+    // MobilePlatformScreen mapping removed
   };
 
   return screenMap[screenName] || null;
@@ -89,7 +89,7 @@ export {
   ShareScreenMobile,
   UploadScreenMobile,
   WelcomeScreenMobile,
-  MobilePlatformScreenMobile,
+  // MobilePlatformScreenMobile,
   // Desktop
   ForoEquipoDesktop,
   HomeScreenDesktop,
